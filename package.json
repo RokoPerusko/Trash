@@ -1,0 +1,13 @@
+{
+  "name": "tak-cesium",
+  "version": "0.1.0",
+  "description": "Minimal 3D Cesium viewer for OpenTAKServer API data",
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "mock": "node mock-ots.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

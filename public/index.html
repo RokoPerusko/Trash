@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="hr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TAK 3D karta</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.120.0/Build/Cesium/Widgets/widgets.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: system-ui, sans-serif; background: #0b1220; }
+  #cesium { position: absolute; inset: 0; }
+  #panel { position: absolute; top: 10px; left: 10px; width: 280px; max-height: calc(100% - 60px);
+    display: flex; flex-direction: column; background: rgba(12,18,32,.88); color: #e6edf7;
+    border: 1px solid #2a3753; border-radius: 8px; font-size: 13px; z-index: 5; }
+  #panel h1 { font-size: 14px; font-weight: 600; margin: 0; padding: 10px 12px; border-bottom: 1px solid #2a3753; }
+  #status { padding: 8px 12px; color: #9fb0cc; line-height: 1.5; }
+  #status.err { color: #ff9b8f; }
+  #status a { color: #7fb4ff; }
+  #list { overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+  #list li { padding: 7px 12px; border-top: 1px solid #1d2840; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+  #list li:hover { background: #18233d; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .sub { color: #8294b3; font-size: 11px; }
+  #actions { padding: 8px 12px; border-top: 1px solid #2a3753; }
+  #detail { padding: 8px 12px; border-top: 1px solid #2a3753; background: #121b30; }
+  #detail[hidden] { display: none; }
+  #detail .nm { font-weight: 600; }
+  #detail .msg { margin-top: 6px; font-size: 11px; color: #9fb0cc; word-break: break-word; }
+  #detail .msg.err { color: #ff9b8f; }
+  #dRaw { margin-top: 8px; }
+  #dRaw summary { cursor: pointer; color: #7fb4ff; font-size: 12px; }
+  #dPre { margin: 6px 0 0; max-height: 220px; overflow: auto; background: #0b1220; border: 1px solid #2a3753;
+    border-radius: 6px; padding: 6px 8px; font-size: 11px; line-height: 1.4; color: #c9d6ee; white-space: pre-wrap; word-break: break-word; }
+  button.danger { background: #8a2f2f; margin-top: 6px; }
+  button.danger:hover { background: #b03a3a; }
+  button { background: #2b4a85; color: #fff; border: 0; border-radius: 6px; padding: 6px 10px; cursor: pointer; font: inherit; }
+  button:hover { background: #3560ad; }
+</style>
+</head>
+<body>
+<div id="cesium"></div>
+<div id="panel">
+  <h1>TAK 3D karta</h1>
+  <div id="status">Ucitavam...</div>
+  <ul id="list"></ul>
+  <div id="detail" hidden>
+    <div class="nm" id="dName"></div>
+    <div class="sub" id="dSub"></div>
+    <details id="dRaw" open>
+      <summary>Sva polja iz API-ja</summary>
+      <pre id="dPre"></pre>
+    </details>
+    <button id="dDelete" class="danger" type="button" hidden>Obrisi marker</button>
+    <div class="msg" id="dMsg"></div>
+  </div>
+  <div id="actions"><button id="zoomAll" type="button">Prikazi sve</button></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/cesium@1.120.0/Build/Cesium/Cesium.js"></script>
+<script>
+(async function () {
+  const statusEl = document.getElementById('status');
+  const listEl = document.getElementById('list');
+  const setStatus = (html, err) => { statusEl.innerHTML = html; statusEl.className = err ? 'err' : ''; };
+
+  let cfg = { ionToken: '', pollMs: 2000 };
+  try { cfg = await (await fetch('/config')).json(); } catch (e) { /* zadano */ }
+
+  const hasToken = !!cfg.ionToken;
+  if (hasToken) Cesium.Ion.defaultAccessToken = cfg.ionToken;
+
+  const viewerOptions = {
+    animation: false, timeline: false, geocoder: false, homeButton: false,
+    sceneModePicker: false, navigationHelpButton: false, baseLayerPicker: hasToken,
+    infoBox: false, selectionIndicator: true,
+  };
+  if (hasToken) {
+    viewerOptions.terrain = Cesium.Terrain.fromWorldTerrain();   // Cesium World Terrain
+  } else {
+    // bez tokena: obicna OSM podloga na ravnom elipsoidu (nema topografije)
+    viewerOptions.baseLayer = new Cesium.ImageryLayer(
+      new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' }));
+    viewerOptions.baseLayerPicker = false;
+  }
+  const viewer = new Cesium.Viewer('cesium', viewerOptions);
+  viewer.scene.globe.depthTestAgainstTerrain = true;
+
+  if (hasToken) {
+    try {
+      const buildings = await Cesium.createOsmBuildingsAsync();   // 3D zgrade (OSM)
+      viewer.scene.primitives.add(buildings);
+    } catch (e) { console.warn('OSM zgrade nisu ucitane:', e); }
+  }
+
+  function colorFor(type) {
+    const t = String(type || '');
+    if (t.startsWith('a-f')) return Cesium.Color.fromCssColorString('#4cc9f0');
+    if (t.startsWith('a-h')) return Cesium.Color.fromCssColorString('#ff5d5d');
+    if (t.startsWith('a-n')) return Cesium.Color.fromCssColorString('#5dd39e');
+    if (t.startsWith('a-u')) return Cesium.Color.fromCssColorString('#ffd166');
+    return Cesium.Color.WHITE;
+  }
+  const isAir = (t) => /^a-.-A/.test(String(t || ''));
+
+  const entities = new Map();
+  let firstFit = true;
+  let lastItems = [];
+
+  function upsert(item) {
+    const color = colorFor(item.type);
+    // zracni objekti: stvarna visina (hae); ostalo: na tlu (teren)
+    const air = isAir(item.type) && item.alt !== null;
+    const position = Cesium.Cartesian3.fromDegrees(item.lon, item.lat, air ? item.alt : 0);
+    const hRef = air ? Cesium.HeightReference.NONE : Cesium.HeightReference.CLAMP_TO_GROUND;
+    let e = entities.get(item.id);
+    if (!e) {
+      e = viewer.entities.add({
+        id: item.id,
+        position,
+        point: { pixelSize: 11, color, outlineColor: Cesium.Color.BLACK, outlineWidth: 2,
+                 heightReference: hRef, disableDepthTestDistance: Number.POSITIVE_INFINITY },
+        label: { text: item.name, font: '13px sans-serif', fillColor: Cesium.Color.WHITE,
+                 outlineColor: Cesium.Color.BLACK, outlineWidth: 3, style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+                 pixelOffset: new Cesium.Cartesian2(0, -18), heightReference: hRef,
+                 disableDepthTestDistance: Number.POSITIVE_INFINITY },
+      });
+      entities.set(item.id, e);
+    } else {
+      e.position = position;
+      e.point.color = color;
+      e.point.heightReference = hRef;
+      e.label.heightReference = hRef;
+      e.label.text = item.name;
+    }
+  }
+
+  function renderList(items) {
+    listEl.textContent = '';
+    for (const it of items) {
+      const li = document.createElement('li');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = colorFor(it.type).toCssColorString();
+      const wrap = document.createElement('div');
+      const nm = document.createElement('div'); nm.textContent = it.name;
+      const sub = document.createElement('div'); sub.className = 'sub';
+      sub.textContent = `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}` + (it.type ? `  ${it.type}` : '');
+      wrap.append(nm, sub); li.append(dot, wrap);
+      li.addEventListener('click', () => {
+        const e = entities.get(it.id);
+        if (e) {
+          viewer.selectedEntity = e;
+          viewer.flyTo(e, { duration: 1.2,
+            offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-40), 400) });
+        }
+      });
+      listEl.appendChild(li);
+    }
+  }
+
+  // ---- detalji odabranog objekta + brisanje markera ----
+  const dEl = document.getElementById('detail');
+  const dName = document.getElementById('dName');
+  const dSub = document.getElementById('dSub');
+  const dMsg = document.getElementById('dMsg');
+  const dDelete = document.getElementById('dDelete');
+  let selectedId = null;
+
+  function fillRaw(it) {
+    document.getElementById('dPre').textContent = JSON.stringify({
+      izvori: it.from || [],
+      polozaj: { lat: it.lat, lon: it.lon, visina: it.alt },
+      vrijeme: it.time,
+      sirovi_odgovori: it.raws || {},
+    }, null, 2);
+  }
+  function refreshDetail() {      // osvjezi sirove podatke odabranog objekta pri svakom pollu
+    if (!selectedId) return;
+    const it = lastItems.find((i) => i.id === selectedId);
+    if (it) fillRaw(it);
+  }
+
+  function showDetail(id) {
+    selectedId = id;
+    const it = lastItems.find((i) => i.id === id);
+    if (!it) { dEl.hidden = true; return; }
+    dEl.hidden = false;
+    dName.textContent = it.name;
+    dSub.textContent = `id: ${it.id}` + (it.type ? `  |  ${it.type}` : '');
+    fillRaw(it);
+    dDelete.hidden = !(it.from || []).includes(cfg.markersPath || '/api/markers');
+    dMsg.textContent = ''; dMsg.className = 'msg';
+  }
+
+  viewer.selectedEntityChanged.addEventListener((e) => {
+    if (e) showDetail(String(e.id)); else { selectedId = null; dEl.hidden = true; }
+  });
+
+  dDelete.addEventListener('click', async () => {
+    const it = lastItems.find((i) => i.id === selectedId);
+    if (!it) return;
+    if (!window.confirm(`Obrisati marker "${it.name}" na serveru?\nOvo ga uklanja svima.`)) return;
+    dDelete.disabled = true; dMsg.className = 'msg'; dMsg.textContent = 'Saljem...';
+    try {
+      const r = await fetch('/api/delete-marker', { method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-TAK-App': '1' },
+        body: JSON.stringify({ id: it.id }) });
+      const j = await r.json();
+      const sent = j.sent ? `${j.sent.method} ${j.sent.path}${j.sent.body ? ' ' + JSON.stringify(j.sent.body) : ''}` : '';
+      if (j.ok) {
+        dMsg.textContent = `Obrisano (HTTP ${j.status}). Poslano: ${sent}`;
+        viewer.selectedEntity = undefined;
+      } else {
+        dMsg.className = 'msg err';
+        dMsg.textContent = `Nije uspjelo: ${j.error || 'HTTP ' + j.status}. ` +
+          (sent ? `Poslano: ${sent}. ` : '') + (j.response ? `Odgovor: ${JSON.stringify(j.response)}` : '');
+      }
+    } catch (e) {
+      dMsg.className = 'msg err'; dMsg.textContent = 'Greska: ' + e.message;
+    }
+    dDelete.disabled = false;
+  });
+
+  function fitAll() {
+    if (!entities.size) return;
+    viewer.flyTo([...entities.values()], { duration: 1.5,
+      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 0) });
+  }
+  document.getElementById('zoomAll').addEventListener('click', fitAll);
+
+  async function poll() {
+    try {
+      const s = await (await fetch('/api/state', { cache: 'no-store' })).json();
+      const items = s.items || [];
+      const seen = new Set();
+      for (const it of items) { upsert(it); seen.add(it.id); }
+      for (const [id, e] of entities) {
+        if (!seen.has(id)) { viewer.entities.remove(e); entities.delete(id); }
+      }
+      lastItems = items;
+      renderList(items);
+      refreshDetail();
+      const src = Object.entries(s.sources || {})
+        .map(([p, v]) => `${p}: ${v.error ? 'greska' : 'HTTP ' + v.status}`).join('<br>');
+      const msg = `Objekata na karti: <b>${items.length}</b><br>` +
+        `<span class="sub">${src}</span><br>` +
+        (hasToken ? '' : '<span class="sub">Bez CESIUM_ION_TOKEN: nema 3D terena ni zgrada.</span><br>') +
+        `<a href="/api/debug" target="_blank" rel="noopener">sirovi odgovori (debug)</a>`;
+      setStatus(s.error ? msg + `<br>${s.error}` : msg, !!s.error);
+      if (firstFit && items.length) { firstFit = false; fitAll(); }
+    } catch (e) {
+      setStatus('Backend nije dostupan: ' + e.message, true);
+    }
+    setTimeout(poll, cfg.pollMs || 2000);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>
