@@ -10,7 +10,7 @@ const env = process.env;
 const OTS_URL = (env.OTS_URL || 'https://localhost').replace(/\/+$/, '');
 const USERNAME = env.OTS_USERNAME || '';
 const PASSWORD = env.OTS_PASSWORD || '';
-const ENDPOINTS = (env.OTS_ENDPOINTS || '/api/map_state,/api/eud,/api/markers')
+const ENDPOINTS = (env.OTS_ENDPOINTS || '/api/markers')
   .split(',').map((s) => s.trim()).filter(Boolean);
 const PORT = Number(env.PORT || 3000);
 const HOST = env.HOST || '127.0.0.1'; // samo ovo racunalo; promijenite svjesno
@@ -20,6 +20,10 @@ const ION_TOKEN = env.CESIUM_ION_TOKEN || '';
 const MARKERS_PATH = env.OTS_MARKERS_PATH || '/api/markers';
 const DELETE_MODE = env.OTS_DELETE_MODE || 'query';   // query | json | path
 const DELETE_FIELD = env.OTS_DELETE_FIELD || 'uid';
+// Uredjaji: /api/eud daje popis (bez polozaja), a polozaj se cita iz povijesti CoT poruka (/api/cot)
+const DEVICES_PATH = env.OTS_DEVICES_PATH || '/api/eud';
+const COT_PATH = env.OTS_COT_PATH || '/api/cot';
+const COT_PAGES = Number(env.OTS_COT_PAGES || 3);   // koliko zadnjih stranica povijesti pregledati
 const PUBLIC_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'public');
 
 if (env.OTS_INSECURE === '1') {
@@ -53,6 +57,7 @@ function asItem(o) {
     type: pick(o, ['type', 'cot_type', 'how']) ?? null,
     lat, lon, alt: Number.isFinite(alt) ? alt : null,
     time: pick(o, ['timestamp', 'last_status_time', 'start', 'time', 'updated']) ?? null,
+    stale: o.stale ?? null,
     raw: o, // originalni objekt iz API-ja (za prikaz svih polja)
   };
 }
@@ -68,6 +73,59 @@ function collect(node, out, depth = 0) {
     if (usedPoint && k === 'point') continue;
     collect(v, out, depth + 1);
   }
+}
+
+// ---------- uredjaji (EUD) s polozajem iz /api/cot ----------
+const validPos = (lat, lon) => Number.isFinite(lat) && Number.isFinite(lon) &&
+  Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && !(Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001);
+
+async function loadDevices() {
+  const dev = await otsGet(`${DEVICES_PATH}?per_page=100`);
+  if (dev.status >= 400) throw new Error(`${DEVICES_PATH}: HTTP ${dev.status}`);
+  const list = dev.json?.results || dev.json?.euds || [];
+  const byUid = new Map(list.filter((d) => d?.uid).map((d) => [String(d.uid), d]));
+  const latest = new Map();                     // uid -> najnoviji zapis CoT s ispravnim polozajem
+  if (byUid.size) {
+    const first = await otsGet(`${COT_PATH}?per_page=100&page=1`);
+    if (first.status >= 400) throw new Error(`${COT_PATH}: HTTP ${first.status}`);
+    const total = Number(first.json?.total_pages || 1);
+    const take = (res) => {
+      for (const r of res.json?.results || []) {
+        const p = r.point || {};
+        const uid = String(p.device_uid || r.sender_uid || r.uid || '');
+        if (!byUid.has(uid) || !String(r.type || '').startsWith('a-')) continue;   // samo polozaj uredjaja, ne markeri
+        const lat = num(p.latitude), lon = num(p.longitude);
+        if (!validPos(lat, lon)) continue;
+        const t = Date.parse(p.timestamp || r.start || '') || 0;
+        const prev = latest.get(uid);
+        if (!prev || t >= prev.t) latest.set(uid, { t, r, lat, lon, p });
+      }
+    };
+    if (total === 1) take(first);
+    else {
+      for (let pg = total; pg > Math.max(0, total - COT_PAGES); pg--) {
+        take(pg === 1 ? first : await otsGet(`${COT_PATH}?per_page=100&page=${pg}`));
+        if (latest.size === byUid.size) break;      // svi uredjaji imaju polozaj
+      }
+    }
+  }
+  const items = [];
+  for (const [uid, d] of byUid) {
+    const l = latest.get(uid);
+    if (!l) continue;
+    const { xml, ...cot } = l.r;
+    const alt = num(l.p.hae);
+    items.push({
+      id: uid, name: String(d.callsign || d.username || uid), type: l.r.type || 'a-f-G-U-C',
+      lat: l.lat, lon: l.lon, alt: Number.isFinite(alt) && alt < 1e6 ? alt : null,
+      time: d.last_event_time || l.p.timestamp || null, posTime: l.p.timestamp || null, stale: null,
+      info: { Status: d.last_status || null, Tim: d.team || null, Uloga: d.team_role || null,
+        Baterija: l.p.battery != null ? `${l.p.battery}%` : null,
+        Uređaj: [d.platform, d.device, d.os].filter(Boolean).join(' ') || null },
+      from: [DEVICES_PATH], raws: { [DEVICES_PATH]: d, [COT_PATH]: cot },
+    });
+  }
+  return { items, devices: byUid.size };
 }
 
 let state = { updated: null, items: [], sources: {}, error: null };
@@ -96,6 +154,14 @@ async function refresh() {
       sources[path] = { error: e.message };
       error = e.message;
     }
+  }
+  try {
+    const { items, devices } = await loadDevices();
+    for (const it of items) found.set(it.id, it);
+    sources[DEVICES_PATH] = { status: 200, added: items.length, devices };
+  } catch (e) {
+    sources[DEVICES_PATH] = { error: e.message };
+    error = error || e.message;
   }
   state = { updated: new Date().toISOString(), items: [...found.values()], sources, error };
 }

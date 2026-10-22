@@ -41,18 +41,23 @@ const server = http.createServer((req, res) => {
   if (req.method !== 'GET' && req.headers['x-xsrf-token'] !== CSRF)
     return send({ meta: { code: 400 }, response: { errors: ['The CSRF token is missing.'] } }, 400);
   const t = Date.now() / 1000;
-  if (url.pathname === '/api/map_state') {
-    return send({
-      euds: [
-        { uid: 'ANDROID-aaa', callsign: 'ALPHA-1', lat: 45.8150 + Math.sin(t / 5) * 0.0005, lon: 15.9819, hae: 120,
-          type: 'a-f-G-U-C' },
-        { uid: 'ios-bbb', callsign: 'iPhone', latitude: '45.8000', longitude: '15.9700', type: 'a-f-G-U-C' },
-        { uid: 'nogps', callsign: 'NoGPS', lat: 0, lon: 0 },
-      ],
-    });
-  }
-  if (url.pathname === '/api/eud') {
-    return send({ results: [{ uid: 'ios-bbb', callsign: 'iPhone', last_status: 'x' }], total_pages: 1 });
+  const EUD = { callsign: 'iPhone', uid: 'DEV-1', last_status: 'Connected', team: 'Cyan', team_role: 'Team Member',
+    platform: 'iTAK', device: 'iPhone', os: '26.6', last_event_time: new Date().toISOString(), last_point: null };
+  if (url.pathname === '/api/map_state') return send({ euds: [EUD], markers: [], casevacs: [], rb_lines: [] });
+  if (url.pathname === '/api/eud') return send({ results: [EUD], total: 1, total_pages: 1, per_page: 10 });
+  if (url.pathname === '/api/cot') {
+    // povijest od najstarijeg: prvo bez GPS-a (0,0), zatim polozaji, usput SPI marker
+    const all = [];
+    for (let i = 0; i < 250; i++) {
+      const ok = i > 40;
+      all.push({ uid: 'DEV-1', type: i % 50 === 49 ? 'b-m-p-s-p-i' : 'a-f-G-U-C',
+        point: { device_uid: 'DEV-1', callsign: 'iPhone', battery: 40, hae: 44,
+          latitude: ok ? 45.8 + i * 0.00002 : 0, longitude: ok ? 15.97 : -0.00001,
+          timestamp: new Date(Date.UTC(2026, 9, 21, 13, 0, i)).toISOString() }, xml: '<x/>' });
+    }
+    const per = Number(url.searchParams.get('per_page') || 10), page = Number(url.searchParams.get('page') || 1);
+    return send({ results: all.slice((page - 1) * per, page * per), per_page: per, current_page: page,
+      total: all.length, total_pages: Math.ceil(all.length / per) });
   }
   if (url.pathname === '/api/markers' && req.method === 'DELETE') {
     // lazni OTS: brise samo ako je zadan uid (query ili JSON tijelo)
@@ -68,8 +73,9 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/markers') {
     return send({ results: [
-      { uid: 'mk-1', callsign: 'Tocka 1', type: 'a-u-G', point: { lat: 45.8100, lon: 15.9900, hae: 0 } },
-      { uid: 'drone-1', callsign: 'Dron', type: 'a-f-A-M-F-Q', point: { lat: 45.8120, lon: 15.9750, hae: 180 } },
+      { uid: 'mk-1', callsign: 'Tocka 1', type: 'a-u-G', stale: '2099-01-01T00:00:00Z', point: { lat: 45.8100, lon: 15.9900, hae: 0 } },
+      { uid: 'drone-1', callsign: 'Stara tocka', stale: '2020-01-01T00:00:00Z', type: 'b-m-p-s-p-i', point: { lat: 45.7, lon: 15.9, hae: 0 } },
+      { uid: 'drone-2', callsign: 'Dron', type: 'a-f-A-M-F-Q', point: { lat: 45.8120, lon: 15.9750, hae: 180 } },
     ] });
   }
   send({ error: 'not found' }, 404);

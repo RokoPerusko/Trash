@@ -1,0 +1,20 @@
+# tajne: lozinka i Cesium token
+.env
+.env.*
+!.env.example
+
+# ovisnosti i logovi
+node_modules/
+*.log
+npm-debug.log*
+
+# certifikati i kljucevi (npr. CA s OTS servera)
+*.pem
+*.p12
+*.key
+*.crt
+
+# sustav / editor
+.DS_Store
+.vscode/
+.idea/
