@@ -1,13 +1,19 @@
 {
   "name": "tak-cesium",
   "version": "0.1.0",
+  "private": true,
   "description": "Minimal 3D Cesium viewer for OpenTAKServer API data",
   "type": "module",
   "scripts": {
     "start": "node --env-file=.env server.js",
-    "mock": "node mock-ots.js"
+    "mock": "node mock-ots.js",
+    "check": "for f in server.js server/*.js server/api/*.js ots-client.js mock-ots.js ots-call.mjs lib/*.js public/js/*.js scripts/*.mjs; do node --check \"$f\" || exit 1; done",
+    "test": "node --test \"test/*.test.js\"",
+    "ui-check": "node scripts/ui-check.mjs",
+    "format": "npx --yes prettier@3.3.3 --write .",
+    "format:check": "npx --yes prettier@3.3.3 --check ."
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.6"
   }
 }

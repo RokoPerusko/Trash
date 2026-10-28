@@ -1,0 +1,5 @@
+graphify-out/
+data/
+.env*
+!.env.example
+*.md

@@ -1,0 +1,61 @@
+# TAK karta na serveru: koristi gotovu sliku (bez izvornog koda). Uz ovu datoteku trebaju samo
+# Caddyfile i .env (vidi .env.example). Pokretanje: docker compose -f docker-compose.prod.yml up -d
+services:
+  app:
+    image: tak-karta:latest
+    pull_policy: never # slika se ucitava s docker load, ne s interneta
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0 # unutar kontejnera; zbog toga je prijava obavezna
+      TRUST_PROXY: '1' # iza Caddyja
+      COOKIE_SECURE: '1' # kolacic sesije samo preko HTTPS-a
+    extra_hosts:
+      - 'host.docker.internal:host-gateway' # pristup OTS-u na istom serveru
+    expose:
+      - '3000' # dostupno samo Caddyju, ne van Dockera
+    volumes:
+      - tak-data:/app/data # zone i rute
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 100
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/api/health']
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-localhost}
+    ports:
+      - '${HTTP_PORT:-80}:80' # potreban za izdavanje certifikata
+      - '${HTTPS_PORT:-443}:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certifikati
+      - caddy-config:/config
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 128m
+    pids_limit: 100
+
+volumes:
+  tak-data:
+  caddy-data:
+  caddy-config:

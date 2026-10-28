@@ -1,0 +1,28 @@
+# tajne i lokalni podaci nikad ne smiju u sliku
+.env
+.env.*
+!.env.example
+data/
+graphify-out/
+
+# razvojne datoteke
+.git/
+.gitignore
+.DS_Store
+node_modules/
+test/
+scripts/
+mock-ots.js
+ots-call.mjs
+*.md
+.prettierrc.json
+.prettierignore
+Dockerfile
+
+# certifikati i kljucevi
+*.pem
+*.key
+*.crt
+*.p12
+
+backups/

@@ -18,3 +18,12 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# zone/alarmi - lokalni podaci, ne idu u git
+data/
+
+# graphify graf znanja (lokalno generiran)
+graphify-out/
+
+# sigurnosne kopije podataka
+backups/

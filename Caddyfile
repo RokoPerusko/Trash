@@ -1,0 +1,12 @@
+# HTTPS ispred aplikacije. SITE_ADDRESS je domena (pravi Let's Encrypt certifikat) ili
+# localhost (Caddyjev vlastiti certifikat, preglednik prikaze upozorenje).
+{$SITE_ADDRESS:localhost} {
+	encode gzip
+	reverse_proxy app:3000
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+}
