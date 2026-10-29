@@ -33,6 +33,11 @@ export const POLL_MS = Number(env.POLL_MS || 2000);
 export const AUTH_REQUIRED =
   env.AUTH_REQUIRED === '1' ? true : env.AUTH_REQUIRED === '0' ? false : !isLoopbackHost(HOST);
 export const TRUST_PROXY = env.TRUST_PROXY === '1'; // iza vlastitog reverznog proxyja (X-Forwarded-*)
+// Put kolacica sesije. Zadano "/"; kad je aplikacija iza proxyja pod podputanjom (npr. /karta/),
+// postavi COOKIE_PATH=/karta/ da kolacic ne dobiva ostatak stranice na toj domeni.
+export const COOKIE_PATH = /^\/[A-Za-z0-9/_-]*$/.test(env.COOKIE_PATH || '')
+  ? env.COOKIE_PATH
+  : '/';
 export const SESSION_HOURS = Number(env.AUTH_SESSION_HOURS || 12);
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 export const LOGIN_MAX_PER_IP = Number(env.AUTH_MAX_ATTEMPTS_IP || 10);

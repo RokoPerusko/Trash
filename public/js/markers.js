@@ -1,6 +1,6 @@
 // Markeri: stvaranje, premjestanje (povlacenjem), preimenovanje i brisanje. OTS nema PUT
 // za marker - ponovni POST s istim uid-om azurira postojeci (vidi README), a to radi backend.
-import { $, api, toast } from './util.js';
+import { $, api, appUrl, toast } from './util.js';
 import { askText, confirmDialog } from './dialog.js';
 import { KINDS } from './kinds.js';
 import { toDeg } from './map.js';
@@ -74,7 +74,7 @@ export function createMarkers(app) {
     msg.className = '';
     msg.textContent = 'Šaljem…';
     try {
-      const j = await fetch('/api/delete-marker', {
+      const j = await fetch(appUrl('/api/delete-marker'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-TAK-App': '1' },
         body: JSON.stringify({ id: it.id }),

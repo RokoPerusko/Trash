@@ -51,12 +51,17 @@ export const fmtClock = (t) => new Date(t).toLocaleString('hr-HR');
 const COMPASS = ['S', 'SI', 'I', 'JI', 'J', 'JZ', 'Z', 'SZ'];
 export const compass = (deg) => COMPASS[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
 
+// Adrese aplikacije su relativne ("api/state", ne "/api/state"), pa radi i kad je ona iza
+// reverznog proxyja pod podputanjom (npr. https://domena/karta/). Pozivatelji smiju pisati
+// "/api/..." - vodeca kosa crta se ovdje skida.
+export const appUrl = (path) => path.replace(/^\//, '');
+
 // JSON API poziv; ne-GET zahtjevi nose X-TAK-App (zastita od poziva s drugih stranica)
 export async function api(method, url, body) {
   const headers = {};
   if (method !== 'GET') headers['X-TAK-App'] = '1';
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const res = await fetch(url, {
+  const res = await fetch(appUrl(url), {
     method,
     headers,
     cache: 'no-store',
