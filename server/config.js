@@ -27,11 +27,9 @@ export const ALLOWED_HOSTS = new Set(
 export const POLL_MS = Number(env.POLL_MS || 2000);
 
 // ---------- prijava ----------
-// Korisnici se provjeravaju prema OTS-u (isti racuni). Prijava je obavezna cim sucelje ne
-// slusa samo na ovom racunalu; na loopback adresi je zadano iskljucena (AUTH_REQUIRED=1 je
-// ukljucuje). Izlaganje bez prijave zahtijeva izricito AUTH_REQUIRED=0 i AUTH_ALLOW_OPEN=1.
-export const AUTH_REQUIRED =
-  env.AUTH_REQUIRED === '1' ? true : env.AUTH_REQUIRED === '0' ? false : !isLoopbackHost(HOST);
+// Korisnici se provjeravaju prema OTS-u (isti racuni). Prijava je zadano ISKLJUCENA (nije potrebno
+// nista u .env); ukljucuje se s AUTH_REQUIRED=1.
+export const AUTH_REQUIRED = env.AUTH_REQUIRED === '1';
 export const TRUST_PROXY = env.TRUST_PROXY === '1'; // iza vlastitog reverznog proxyja (X-Forwarded-*)
 // Put kolacica sesije. Zadano "/"; kad je aplikacija iza proxyja pod podputanjom (npr. /karta/),
 // postavi COOKIE_PATH=/karta/ da kolacic ne dobiva ostatak stranice na toj domeni.
