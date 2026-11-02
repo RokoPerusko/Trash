@@ -2,10 +2,10 @@
 // CSP je namjerno ogranicen na direktive koje ne diraju Cesium. Stroziji script-src/connect-src
 // isprobani su u pregledniku i ruse satelitsku podlogu: Cesium ion je ucitava preko Bing Mapsa
 // JSONP-om (dev.virtualearth.net) i dohvaca pločice preko http://, pa bi trebalo dopustiti i http:.
-const CSP = "frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'";
+const CSP = "frame-ancestors 'self'; base-uri 'none'; object-src 'none'; form-action 'self'";
 export const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
+  'X-Frame-Options': 'SAMEORIGIN',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
   'Content-Security-Policy': CSP,
