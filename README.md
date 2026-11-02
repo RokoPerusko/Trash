@@ -331,6 +331,26 @@ povijesti dok se ne rotiraju kredencijali**. Potrebno što prije: promijeniti OT
 - **Zapisnik:** `data/audit.log` (JSON, jedna linija po događaju, rotira se na 5 MB, ostaje `audit.log.1`). Bilježi prijave (i neuspjele), odjave te dodavanje/izmjene/brisanje markera, zona i ruta, s korisnikom i IP adresom.
 - **Uloge:** `AUTH_EDIT_ROLES` (OTS uloge odvojene zarezom). Prazno = svi prijavljeni mijenjaju. Postavljeno = mijenjaju samo korisnici s tom ulogom, ostali imaju pregled. Provjera je na serveru (HTTP 403), sučelje samo skriva alate.
 
+## Kao mikroservis iza tuđeg nginxa (podputanja)
+
+Aplikacija radi pod podputanjom velike aplikacije na istoj domeni, npr. `https://abc.dbs.hr/karta/`.
+U sučelju su sve adrese relativne (`api/state`, ne `/api/state`), a nginx skida prefiks, pa server
+ne zna za njega. U `.env`: `TRUST_PROXY=1`, `COOKIE_SECURE=1`, `COOKIE_PATH=/karta/` i
+`ALLOWED_HOSTS=abc.dbs.hr`. Kontejner objavi na `127.0.0.1:3001`. U nginx (unutar postojećeg
+`server` bloka za domenu):
+
+```
+location = /karta { return 301 /karta/; }
+location /karta/ {
+    proxy_pass http://127.0.0.1:3001/;   # kosa crta na kraju skida /karta
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto https;
+}
+```
+
+Adresa se mora otvarati **s kosom crtom na kraju** (`/karta/`); preusmjerenje iznad to osigurava.
+
 ## Sigurnosne mjere
 - TLS provjera se može isključiti (`OTS_INSECURE=1`) samo za OTS klijent, ne za cijeli proces;
   zadano je uključena. OTS klijent koristi `node:http(s)`: bez praćenja preusmjeravanja (tokeni

@@ -89,3 +89,11 @@ test('loopback adrese', () => {
   assert.equal(isLoopbackHost('127.0.0.1'), true);
   assert.equal(isLoopbackHost('0.0.0.0'), false);
 });
+
+test('kolacic ima zadani Path=/ ili put podputanje', () => {
+  assert.match(sessionCookie('tok', { maxAgeSec: 60, secure: true }), /Path=\/;/);
+  assert.match(
+    sessionCookie('tok', { maxAgeSec: 60, secure: true, path: '/karta/' }),
+    /Path=\/karta\/;/,
+  );
+});

@@ -10,6 +10,7 @@ import {
   AUTH_REQUIRED,
   TRUST_PROXY,
   SESSION_HOURS,
+  COOKIE_PATH,
   LOGIN_WINDOW_MS,
   LOGIN_MAX_PER_IP,
   LOGIN_MAX_PER_USER,
@@ -33,6 +34,7 @@ const secureCookie = (req) =>
 export const cookieOptions = (req) => ({
   maxAgeSec: SESSION_HOURS * 3600,
   secure: secureCookie(req),
+  path: COOKIE_PATH,
 });
 
 // korisnik je valjan ako ga OTS pusti unutra i vrati njegov profil (/api/me)
