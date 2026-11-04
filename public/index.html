@@ -97,44 +97,6 @@
 
     <div id="cesium"></div>
 
-    <!-- prijava: prikazuje se samo kad je obavezna i korisnik nije prijavljen -->
-    <div id="login" class="login" hidden>
-      <form id="loginForm" class="card login-card">
-        <div class="brand">
-          <span class="logo" aria-hidden="true"
-            ><svg class="ic"><use href="#i-target" /></svg
-          ></span>
-          <span class="brand-name">TAK karta</span>
-        </div>
-        <h1>Prijava</h1>
-        <p class="muted">Koristi račun s OpenTAKServera.</p>
-        <label>
-          <span>Korisničko ime</span>
-          <input
-            id="loginUser"
-            name="username"
-            type="text"
-            autocomplete="username"
-            required
-            maxlength="256"
-          />
-        </label>
-        <label>
-          <span>Lozinka</span>
-          <input
-            id="loginPass"
-            name="password"
-            type="password"
-            autocomplete="current-password"
-            required
-            maxlength="256"
-          />
-        </label>
-        <div id="loginError" role="alert" hidden></div>
-        <button type="submit" class="btn primary wide" id="loginSubmit">Prijava</button>
-      </form>
-    </div>
-
     <!-- ---------- navbar ---------- -->
     <header id="topbar">
       <div class="brand">
@@ -191,10 +153,6 @@
 
     <!-- izbornik (postavke) -->
     <div id="menu" class="card" hidden>
-      <div class="menu-row" id="menuUserRow" hidden>
-        <span>Prijavljen: <b id="menuUser"></b></span>
-        <button type="button" class="btn small" id="logoutBtn">Odjava</button>
-      </div>
       <div class="menu-row">
         <span>Tema</span>
         <div class="seg" id="themeSeg">
@@ -212,6 +170,9 @@
           <option value="osm">OpenStreetMap</option>
         </select>
       </div>
+      <label class="menu-row check" id="buildingsRow" hidden>
+        <span>Prikaži 3D zgrade</span><input type="checkbox" id="buildingsToggle" />
+      </label>
       <label class="menu-row check">
         <span>Zvuk alarma</span><input type="checkbox" id="soundToggle" />
       </label>

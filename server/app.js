@@ -1,16 +1,15 @@
-// HTTP poslužitelj: provjere svakog zahtjeva (host, prijava, pravo uredjivanja), pa rute po temama.
+// HTTP poslužitelj: provjera hosta, pa rute po temama. Nema prijave: svi koji dosegnu sucelje smiju sve.
 import http from 'node:http';
 import { clientIp } from '../lib/auth.js';
 import { ALLOWED_HOSTS, TRUST_PROXY } from './config.js';
 import { sendJson, SECURITY_HEADERS } from './http.js';
-import { getSession, handleSessionRoutes } from './api/session.js';
 import { handleInfo } from './api/info.js';
 import { handleMarkers } from './api/markers.js';
 import { handleZones } from './api/zones.js';
 import { handleRoutes } from './api/routes.js';
 import { serveStatic } from './static.js';
 
-// rute koje traze prijavu; svaka vraca true kad je zahtjev obradila
+// svaka ruta vraca true kad je zahtjev obradila
 const API_HANDLERS = [handleInfo, handleMarkers, handleZones, handleRoutes];
 
 export const server = http.createServer(async (req, res) => {
@@ -22,24 +21,9 @@ export const server = http.createServer(async (req, res) => {
       .replace(/:\d+$/, '');
     if (!ALLOWED_HOSTS.has(hostName)) return sendJson(res, { error: 'zabranjeno' }, 403);
 
-    // prijava: sve osim stranice i njenih datoteka trazi valjanu sesiju
-    const session = getSession(req);
-    const ctx = {
-      req,
-      res,
-      url,
-      session,
-      who: session?.username ?? null,
-      ip: clientIp(req, TRUST_PROXY),
-    };
-    if (await handleSessionRoutes(ctx)) return;
+    const ctx = { req, res, url, who: null, ip: clientIp(req, TRUST_PROXY) };
+    if (url.pathname === '/api/health') return sendJson(res, { ok: true });
 
-    const isApi = url.pathname.startsWith('/api/') || url.pathname === '/config';
-    if (isApi && !session) return sendJson(res, { error: 'potrebna prijava' }, 401);
-    // promjene smiju samo korisnici s pravom uredjivanja (provjera je na serveru, ne u sucelju)
-    if (isApi && req.method !== 'GET' && !session.canEdit) {
-      return sendJson(res, { error: 'nemaš pravo mijenjati podatke (samo pregled)' }, 403);
-    }
     for (const handler of API_HANDLERS) if (await handler(ctx)) return;
 
     if (req.method !== 'GET' && req.method !== 'HEAD')

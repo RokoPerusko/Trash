@@ -56,12 +56,17 @@ export async function createMap(cfg) {
   if (hasToken) options.terrain = Cesium.Terrain.fromWorldTerrain();
   const viewer = new Cesium.Viewer('cesium', options);
   viewer.scene.globe.depthTestAgainstTerrain = true;
+  let buildings = null; // 3D zgrade (OSM Buildings s Cesium iona); null ako nisu ucitane
   if (hasToken) {
     try {
-      viewer.scene.primitives.add(await Cesium.createOsmBuildingsAsync());
+      buildings = viewer.scene.primitives.add(await Cesium.createOsmBuildingsAsync());
     } catch (e) {
       console.warn('OSM zgrade nisu ucitane:', e);
     }
+  }
+
+  function setBuildings(visible) {
+    if (buildings) buildings.show = !!visible;
   }
 
   function setBase(key) {
@@ -117,6 +122,8 @@ export async function createMap(cfg) {
       .filter(([, b]) => hasToken || !b.ion)
       .map(([key, b]) => ({ key, label: b.label })),
     setBase,
+    hasBuildings: !!buildings,
+    setBuildings,
     pickGround,
     sampleGroundHeight,
     sampleTerrain,

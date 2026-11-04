@@ -10,19 +10,11 @@ import { createZones } from './zones.js';
 import { createRoutes } from './routes.js';
 import { createAlerts } from './alerts.js';
 import { $, api } from './util.js';
-import { ensureSession } from './auth.js';
 
-const SLOW_EVERY = 3; // zone i rute se osvjezavaju svaki 3. ciklus (dijele ih svi korisnici)
+const ALERTS_EVERY_MS = 2000; // alarmi, zone i rute ne trebaju brzi takt od objekata
+const SLOW_EVERY_MS = 6000; // zone i rute dijele svi korisnici
 
 async function main() {
-  window.addEventListener('tak-auth-expired', () => location.reload());
-  const session = await ensureSession();
-  // samo pregled: alati za promjene se skrivaju (server ionako odbija promjene)
-  if (session.canEdit === false) {
-    for (const id of ['toolMarker', 'toolZone', 'toolRoute']) $(id).hidden = true;
-    document.body.classList.add('readonly');
-  }
-
   let cfg = { ionToken: '', pollMs: 2000 };
   try {
     cfg = await api('GET', '/config');
@@ -56,15 +48,22 @@ async function main() {
     app.routes.onPick(entity) || app.zones.onPick(entity);
   });
 
-  let cycle = 0;
+  const uiMs = cfg.uiPollMs || cfg.pollMs || 2000;
+  let lastAlerts = 0;
+  let lastSlow = 0;
   async function tick() {
     await app.items.poll();
-    app.alerts.sync();
-    if (cycle++ % SLOW_EVERY === 0) {
+    const now = Date.now();
+    if (now - lastAlerts >= ALERTS_EVERY_MS) {
+      lastAlerts = now;
+      app.alerts.sync();
+    }
+    if (now - lastSlow >= SLOW_EVERY_MS) {
+      lastSlow = now;
       app.zones.sync();
       app.routes.sync();
     }
-    setTimeout(tick, cfg.pollMs || 2000);
+    setTimeout(tick, uiMs);
   }
   tick();
 }
