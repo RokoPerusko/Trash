@@ -84,6 +84,15 @@ export function createNav(app) {
   });
   $('baseRow').hidden = app.map.bases.length < 2;
 
+  // ---------- 3D zgrade ----------
+  $('buildingsRow').hidden = !app.map.hasBuildings;
+  $('buildingsToggle').checked = prefs.get('buildings') !== '0';
+  app.map.setBuildings($('buildingsToggle').checked);
+  $('buildingsToggle').addEventListener('change', (e) => {
+    app.map.setBuildings(e.target.checked);
+    prefs.set('buildings', e.target.checked ? '1' : '0');
+  });
+
   // ---------- zvuk ----------
   $('soundToggle').checked = prefs.get('sound') === '1';
   $('soundToggle').addEventListener('change', (e) =>

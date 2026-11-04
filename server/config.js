@@ -2,7 +2,6 @@
 // ostali moduli samo uvoze gotove vrijednosti.
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isLoopbackHost } from '../lib/auth.js';
 import { LIMITS } from '../lib/validate.js';
 
 export const env = process.env;
@@ -24,32 +23,13 @@ export const ALLOWED_HOSTS = new Set(
       .filter(Boolean),
   ),
 );
-export const POLL_MS = Number(env.POLL_MS || 2000);
+export const POLL_MS = Number(env.POLL_MS || 1000);
+// kako cesto sucelje trazi stanje od ovog servera (iz kesa, OTS se zbog toga ne opterecuje)
+export const UI_POLL_MS = Math.max(100, Number(env.UI_POLL_MS || 500));
 
-// ---------- prijava ----------
-// Korisnici se provjeravaju prema OTS-u (isti racuni). Prijava je zadano ISKLJUCENA (nije potrebno
-// nista u .env); ukljucuje se s AUTH_REQUIRED=1.
-export const AUTH_REQUIRED = env.AUTH_REQUIRED === '1';
 export const TRUST_PROXY = env.TRUST_PROXY === '1'; // iza vlastitog reverznog proxyja (X-Forwarded-*)
-// Put kolacica sesije. Zadano "/"; kad je aplikacija iza proxyja pod podputanjom (npr. /karta/),
-// postavi COOKIE_PATH=/karta/ da kolacic ne dobiva ostatak stranice na toj domeni.
-export const COOKIE_PATH = /^\/[A-Za-z0-9/_-]*$/.test(env.COOKIE_PATH || '')
-  ? env.COOKIE_PATH
-  : '/';
-export const SESSION_HOURS = Number(env.AUTH_SESSION_HOURS || 12);
-export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-export const LOGIN_MAX_PER_IP = Number(env.AUTH_MAX_ATTEMPTS_IP || 10);
-export const LOGIN_MAX_PER_USER = Number(env.AUTH_MAX_ATTEMPTS_USER || 5);
-// Uloge: ako je AUTH_EDIT_ROLES prazno, svaki prijavljeni korisnik smije mijenjati (zadano).
-// Inace mijenjati smiju samo korisnici s barem jednom od navedenih OTS uloga, ostali samo gledaju.
-export const EDIT_ROLES = new Set(
-  (env.AUTH_EDIT_ROLES || '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean),
-);
-export const LOGIN_FAIL_DELAY_MS = 400; // usporava pogadjanje lozinki
-export const MAX_CRED_LEN = 256;
+// simulirani dron iznad Zagreba (proof of concept); DEMO_DRONE=0 ga iskljucuje
+export const DEMO_DRONE = env.DEMO_DRONE !== '0';
 // uredjaji koji ne javljaju dulje od ovoga skrivaju se na karti (OTS ih ne brise sam) i
 // za njih se vise ne javlja alarm "ne javlja polozaj"
 export const OFFLINE_HIDE_HOURS = Number(env.OTS_OFFLINE_HIDE_HOURS || 24);
@@ -65,6 +45,7 @@ export const DELETE_FIELD = env.OTS_DELETE_FIELD || 'uid';
 // Uredjaji: /api/eud daje popis (bez polozaja), a polozaj se cita iz povijesti CoT poruka (/api/cot)
 export const DEVICES_PATH = env.OTS_DEVICES_PATH || '/api/eud';
 export const COT_PATH = env.OTS_COT_PATH || '/api/cot';
+export const COT_SORTED_PAGE = Number(env.OTS_COT_SORTED_PAGE || 30); // zapisa po stranici kad OTS sortira od najnovijeg
 export const COT_PAGES = Number(env.OTS_COT_PAGES || 3); // koliko zadnjih stranica povijesti pregledati
 export const HISTORY_MAX_PAGES = Number(env.OTS_HISTORY_MAX_PAGES || 60); // sigurnosna granica za /api/history
 export const NO_REPORT_MIN = Number(env.OTS_NO_REPORT_MIN || 10); // alarm ako uredjaj ne javlja polozaj X min

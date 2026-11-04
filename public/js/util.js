@@ -73,9 +73,6 @@ export async function api(method, url, body) {
   } catch {
     /* odgovor nije JSON */
   }
-  // sesija je istekla ili je server restartan: main.js ponovno ucitava stranicu (prijava)
-  if (res.status === 401 && url !== '/api/login')
-    window.dispatchEvent(new Event('tak-auth-expired'));
   if (!res.ok || json?.ok === false) {
     throw new Error(json?.error || json?.response?.error || `HTTP ${res.status}`);
   }

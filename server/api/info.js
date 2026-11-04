@@ -4,6 +4,7 @@ import {
   OTS_URL,
   ION_TOKEN,
   POLL_MS,
+  UI_POLL_MS,
   MARKERS_PATH,
   OFFLINE_HIDE_HOURS,
 } from '../config.js';
@@ -19,6 +20,7 @@ export async function handleInfo({ req, res, url }) {
     return sendJson(res, {
       ionToken: ION_TOKEN,
       pollMs: POLL_MS,
+      uiPollMs: UI_POLL_MS,
       markersPath: MARKERS_PATH,
       offlineHideHours: OFFLINE_HIDE_HOURS,
     });

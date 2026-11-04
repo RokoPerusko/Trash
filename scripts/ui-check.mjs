@@ -104,19 +104,6 @@ await send('Emulation.setDeviceMetricsOverride', {
 await send('Page.navigate', { url });
 await sleep(15000);
 
-// ako je prijava obavezna, prijavi se s TAK_USER / TAK_PASS (npr. racun s lazni OTS-a)
-const evaluate = async (expression) =>
-  (await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result
-    ?.result?.value;
-if ((await evaluate(`!document.getElementById('login')?.hidden`)) && process.env.TAK_USER) {
-  await evaluate(
-    `document.getElementById('loginUser').value = ${JSON.stringify(process.env.TAK_USER)};
-     document.getElementById('loginPass').value = ${JSON.stringify(process.env.TAK_PASS || '')};
-     document.getElementById('loginSubmit').click()`,
-  );
-  await sleep(12000);
-}
-
 const shot = await send('Page.captureScreenshot', { format: 'png' });
 writeFileSync(out, Buffer.from(shot.result.data, 'base64'));
 const pill = await send('Runtime.evaluate', {
