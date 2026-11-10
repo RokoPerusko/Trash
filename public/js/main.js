@@ -9,6 +9,8 @@ import { createMeasure } from './measure.js';
 import { createZones } from './zones.js';
 import { createRoutes } from './routes.js';
 import { createAlerts } from './alerts.js';
+import { createVideo } from './video.js';
+import { createOts } from './ots.js';
 import { $, api } from './util.js';
 
 const ALERTS_EVERY_MS = 2000; // alarmi, zone i rute ne trebaju brzi takt od objekata
@@ -34,6 +36,8 @@ async function main() {
   app.zones = createZones(app);
   app.routes = createRoutes(app);
   app.alerts = createAlerts(app);
+  app.video = createVideo(app);
+  app.ots = createOts(app);
 
   // klik na zonu ili rutu na karti (kad nijedan alat nije aktivan) otvara njezine detalje
   const { viewer, Cesium } = map;

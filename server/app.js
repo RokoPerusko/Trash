@@ -7,10 +7,11 @@ import { handleInfo } from './api/info.js';
 import { handleMarkers } from './api/markers.js';
 import { handleZones } from './api/zones.js';
 import { handleRoutes } from './api/routes.js';
+import { handleVideo } from './api/video.js';
 import { serveStatic } from './static.js';
 
 // svaka ruta vraca true kad je zahtjev obradila
-const API_HANDLERS = [handleInfo, handleMarkers, handleZones, handleRoutes];
+const API_HANDLERS = [handleInfo, handleMarkers, handleZones, handleRoutes, handleVideo];
 
 export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

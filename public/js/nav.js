@@ -1,7 +1,14 @@
 // Navigacija: navbar / donji izbornik, bocna traka, izbornik s postavkama i tema.
 import { $, prefs } from './util.js';
 
-const TITLES = { objects: 'Objekti', routes: 'Rute', zones: 'Zone', alerts: 'Alarmi' };
+const TITLES = {
+  objects: 'Objekti',
+  routes: 'Rute',
+  zones: 'Zone',
+  alerts: 'Alarmi',
+  video: 'Video',
+  ots: 'OTS',
+};
 const MOBILE = window.matchMedia('(max-width: 800px)');
 
 export function createNav(app) {
@@ -17,6 +24,8 @@ export function createNav(app) {
       b.classList.toggle('on', b.dataset.section === name);
     }
     app.alerts?.render();
+    if (name === 'video') app.video?.sync();
+    if (name === 'ots') app.ots?.sync();
     prefs.set('section', name);
   }
 
