@@ -6,12 +6,17 @@ import { LIMITS } from '../lib/validate.js';
 
 export const env = process.env;
 export const OTS_URL = (env.OTS_URL || 'https://localhost').replace(/\/+$/, '');
+// adresa OTS-a kako je vidi preglednik (za video); zadano ista kao OTS_URL
+export const OTS_PUBLIC_URL = (env.OTS_PUBLIC_URL || OTS_URL).replace(/\/+$/, '');
 export const USERNAME = env.OTS_USERNAME || '';
 export const PASSWORD = env.OTS_PASSWORD || '';
 export const ENDPOINTS = (env.OTS_ENDPOINTS || '/api/markers')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
+// CASEVAC zahtjevi (zasebna vrsta objekta); prazno = iskljuceno
+export const CASEVAC_PATH = (env.OTS_CASEVAC_PATH ?? '/api/casevac').trim();
+export const EXTRA_EVERY_MS = Number(env.OTS_EXTRA_EVERY_MS || 10000); // status, grupe, misije
 export const PORT = Number(env.PORT || 3000);
 export const HOST = env.HOST || '127.0.0.1'; // samo ovo racunalo; promijenite svjesno
 // dodatna imena hosta koja preglednik smije koristiti (zastita od DNS rebindinga)

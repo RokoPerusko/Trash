@@ -13,9 +13,11 @@ import { ots, otsGet } from '../ots.js';
 import { state } from '../state.js';
 import { loadHistory } from '../history.js';
 import { alerts, otsAlerts } from '../alerts.js';
+import { getExtra } from '../ots-extra.js';
 
 export async function handleInfo({ req, res, url }) {
   if (url.pathname === '/api/state') return sendJson(res, state);
+  if (url.pathname === '/api/ots') return sendJson(res, getExtra());
   if (url.pathname === '/config') {
     return sendJson(res, {
       ionToken: ION_TOKEN,

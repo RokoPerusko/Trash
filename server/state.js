@@ -4,8 +4,10 @@ import { ots, otsGetAllPages } from './ots.js';
 import { collect } from './normalize.js';
 import { loadDevices } from './devices.js';
 import { demoDrone } from './demo.js';
+import { refreshExtra } from './ots-extra.js';
 import { checkZonesAndAlerts, loadOtsAlerts } from './alerts.js';
 import {
+  CASEVAC_PATH,
   DEMO_DRONE,
   ENDPOINTS,
   DEVICES_PATH,
@@ -17,6 +19,9 @@ import {
 export let state = { updated: null, items: [], sources: {}, error: null };
 
 const startedAt = Date.now();
+// objekti koji nisu uredjaji (zrakoplovi, brodovi) ostaju na karti kratko nakon zadnjeg javljanja
+const CONTACT_TTL_MS = 2 * 60 * 1000;
+const contacts = new Map(); // id -> { item, seen }
 const DEMO_TICK_MS = 250; // demo dron javlja polozaj cesce nego sto se cita OTS
 
 export async function refresh() {
@@ -50,12 +55,15 @@ export async function refresh() {
       error = e.message;
     }
   }
+  const extraDone = refreshExtra();
   const dev = await devicesResult;
   if (dev.err) {
     sources[DEVICES_PATH] = { error: dev.err.message };
     error = error || dev.err.message;
   } else {
     for (const it of dev.value.items) found.set(it.id, it);
+    const now = Date.now();
+    for (const c of dev.value.contacts || []) contacts.set(c.id, { item: c, seen: now });
     sources[DEVICES_PATH] = {
       status: 200,
       added: dev.value.items.length,
@@ -70,13 +78,32 @@ export async function refresh() {
       sources[OTS_ALERTS_PATH] = { error: e.message };
     }
   }
+  await extraDone;
+  for (const [id, c] of contacts) {
+    if (Date.now() - c.seen > CONTACT_TTL_MS) contacts.delete(id);
+    else if (!found.has(id)) found.set(id, c.item);
+  }
+  if (CASEVAC_PATH) {
+    try {
+      const { pages } = await otsGetAllPages(CASEVAC_PATH);
+      const local = new Map();
+      for (const json of pages) if (json) collect(json, local);
+      for (const [id, it] of local) {
+        const { raw, ...rest } = it;
+        found.set(id, { ...rest, type: rest.type || 'b-r-f-h-c', from: [CASEVAC_PATH], raws: {} });
+      }
+      sources[CASEVAC_PATH] = { status: 200, added: local.size };
+    } catch {
+      /* stariji OTS bez CASEVAC-a: nije greska */
+    }
+  }
   if (DEMO_DRONE) {
     const d = demoDrone(Date.now(), startedAt);
     found.set(d.id, d);
   }
   const items = [...found.values()].map((it) => ({
     ...it,
-    kind: kindOf(it, { markersPath: MARKERS_PATH }),
+    kind: kindOf(it, { markersPath: MARKERS_PATH, casevacPath: CASEVAC_PATH }),
   }));
   state = {
     updated: new Date().toISOString(),
@@ -92,7 +119,7 @@ export async function refresh() {
 function moveDemoDrone() {
   if (!state.updated) return;
   const d = demoDrone(Date.now(), startedAt);
-  const item = { ...d, kind: kindOf(d, { markersPath: MARKERS_PATH }) };
+  const item = { ...d, kind: kindOf(d, { markersPath: MARKERS_PATH, casevacPath: CASEVAC_PATH }) };
   state = { ...state, items: [...state.items.filter((i) => i.id !== d.id), item] };
 }
 

@@ -13,6 +13,9 @@ const RECENT_REPORT_MS = 5 * 60 * 1000; // polozaj mladi od ovoga znaci da uredj
 const MARKER_TTL_MS = 24 * 3600 * 1000; // OTS postavlja rok markera na "sada + 24 h"
 const CLOCK_WARN_MS = 5 * 60 * 1000; // upozori ako se sat OTS-a razlikuje vise od 5 min
 
+const DIRECTIONAL = new Set(['diamond', 'plane', 'boat']); // ikone koje se okrecu prema smjeru kretanja
+const CASEVAC_COLOR = '#ff5d5d';
+
 const affil = (t) => /^a-([fhnu])/.exec(String(t || ''))?.[1];
 
 export function createItems(app) {
@@ -35,7 +38,13 @@ export function createItems(app) {
   const reportedRecently = (it) => Date.now() - (Date.parse(it.posTime) || 0) < RECENT_REPORT_MS;
   const offline = (it) =>
     it.info?.Status && it.info.Status !== 'Connected' && !reportedRecently(it);
-  const itemColor = (it) => (offline(it) ? OFFLINE_COLOR : COLORS[affil(it.type)] || '#d5dbe8');
+  // boja: odspojeno = siva, CASEVAC = crvena, uredjaj dobiva boju svog tima, ostalo afilijaciju
+  const itemColor = (it) =>
+    offline(it)
+      ? OFFLINE_COLOR
+      : kind(it) === 'casevac'
+        ? CASEVAC_COLOR
+        : it.teamColor || COLORS[affil(it.type)] || '#d5dbe8';
   const isStale = (it) => kind(it) === 'marker' && it.stale && Date.parse(it.stale) < Date.now();
   // uredjaj koji je odspojen i ne javlja dulje od praga (OTS ga ne brise, pa ostaje na zadnjem
   // poznatom polozaju); skriva se osim ako je ukljucen prikaz odspojenih
@@ -80,6 +89,50 @@ export function createItems(app) {
       g.moveTo(c, 33);
       g.bezierCurveTo(c - 11, 20, c - 8, 5, c, 5);
       g.bezierCurveTo(c + 8, 5, c + 11, 20, c, 33);
+    } else if (shape === 'plane') {
+      const pts = [
+        [0, -15],
+        [3, -5],
+        [14, 2],
+        [14, 5],
+        [3, 3],
+        [3, 10],
+        [7, 13],
+        [7, 15],
+        [0, 13],
+      ];
+      const half = pts.map(([x, y]) => [c + x, c + y]);
+      const all = [
+        ...half,
+        ...half
+          .slice(1, -1)
+          .reverse()
+          .map(([x, y]) => [2 * c - x, y]),
+      ];
+      all.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+    } else if (shape === 'boat') {
+      g.moveTo(c, 3);
+      g.lineTo(c + 9, 14);
+      g.lineTo(c + 9, 31);
+      g.lineTo(c - 9, 31);
+      g.lineTo(c - 9, 14);
+    } else if (shape === 'cross') {
+      const a = 4;
+      const b = 13;
+      [
+        [-a, -b],
+        [a, -b],
+        [a, -a],
+        [b, -a],
+        [b, a],
+        [a, a],
+        [a, b],
+        [-a, b],
+        [-a, a],
+        [-b, a],
+        [-b, -a],
+        [-a, -a],
+      ].forEach(([x, y], i) => (i ? g.lineTo(c + x, c + y) : g.moveTo(c + x, c + y)));
     } else if (shape === 'diamond') {
       g.moveTo(c, 4);
       g.lineTo(c + 10, 30);
@@ -109,7 +162,7 @@ export function createItems(app) {
     const image = shapeIcon(k.shape, itemColor(item), item.id === selectedId);
     const course = item.telemetry?.course;
     const rotation =
-      k.shape === 'diamond' && Number.isFinite(course) ? -Cesium.Math.toRadians(course) : 0;
+      DIRECTIONAL.has(k.shape) && Number.isFinite(course) ? -Cesium.Math.toRadians(course) : 0;
     const vertical =
       k.shape === 'pin' ? Cesium.VerticalOrigin.BOTTOM : Cesium.VerticalOrigin.CENTER;
     const labelY = k.shape === 'pin' ? -40 : -26;
@@ -208,6 +261,7 @@ export function createItems(app) {
       const warn = expiryInfo(it)[1];
       const battery = it.telemetry?.battery;
       const sub = [typeLabel(it)];
+      if (it.team) sub.push(it.team);
       if (Number.isFinite(battery)) sub.push(`${Math.round(battery)} %`);
       list.appendChild(
         el(

@@ -3,6 +3,9 @@ import { num } from '../lib/validate.js';
 import { otsGet } from './ots.js';
 import { DEVICES_PATH, COT_PATH, COT_PAGES, COT_SORTED_PAGE } from './config.js';
 
+// zracni (a-?-A) i morski (a-?-S) CoT tipovi koji nisu nasi uredjaji
+const CONTACT_TYPE = /^a-.-[AS](-|$)/;
+
 export const validPos = (lat, lon) =>
   Number.isFinite(lat) &&
   Number.isFinite(lon) &&
@@ -13,6 +16,7 @@ export const validPos = (lat, lon) =>
 const finiteOrNull = (v) => (Number.isFinite(num(v)) ? num(v) : null);
 
 // zadnji poznati polozaj po uredjaju: odspojeni uredjaji se trace jednom, ne u svakom ciklusu
+const MAX_CONTACTS = 300;
 const knownPos = new Map();
 const searched = new Set();
 let knownCotPages = 0; // zadnji poznati broj stranica CoT povijesti
@@ -23,6 +27,7 @@ export async function loadDevices() {
   const list = dev.json?.results || dev.json?.euds || [];
   const byUid = new Map(list.filter((d) => d?.uid).map((d) => [String(d.uid), d]));
   const latest = new Map(); // uid -> najnoviji zapis CoT s ispravnim polozajem
+  const others = new Map(); // uid -> najnoviji polozaj objekata koji nisu uredjaji (zrak, more)
   // treba svjez polozaj: spojeni uredjaji uvijek, ostali dok se jednom nisu potrazili
   const needFresh = () =>
     [...byUid].filter(([uid, d]) => d.last_status === 'Connected' || !searched.has(uid));
@@ -44,11 +49,19 @@ export async function loadDevices() {
       for (const r of res.json?.results || []) {
         const p = r.point || {};
         const uid = String(p.device_uid || r.sender_uid || r.uid || '');
-        if (!byUid.has(uid) || !String(r.type || '').startsWith('a-')) continue; // samo polozaj uredjaja, ne markeri
+        if (!String(r.type || '').startsWith('a-')) continue; // samo polozaji, ne markeri
         const lat = num(p.latitude),
           lon = num(p.longitude);
         if (!validPos(lat, lon)) continue;
         const t = Date.parse(p.timestamp || r.start || '') || 0;
+        if (!byUid.has(uid)) {
+          // ostali izvori OTS-a (npr. ADS-B zrakoplovi, AIS brodovi): zracni i morski CoT tipovi
+          if (uid && CONTACT_TYPE.test(r.type)) {
+            const prevC = others.get(uid);
+            if (!prevC || t >= prevC.t) others.set(uid, { t, r, lat, lon, p });
+          }
+          continue;
+        }
         const prev = latest.get(uid);
         if (!prev || t >= prev.t) latest.set(uid, { t, r, lat, lon, p });
       }
@@ -109,6 +122,8 @@ export async function loadDevices() {
       time: d.last_event_time || l.p.timestamp || null,
       posTime: l.p.timestamp || null,
       stale: null,
+      team: d.team || null,
+      teamColor: /^#[0-9a-fA-F]{6}$/.test(d.team_color || '') ? d.team_color : null,
       // zajednicka telemetrija za sve vrste objekata (uredjaj, dron...); null = nepoznato
       telemetry: {
         speed: finiteOrNull(l.p.speed), // m/s
@@ -126,5 +141,27 @@ export async function loadDevices() {
       raws: { [DEVICES_PATH]: d, [COT_PATH]: cot },
     });
   }
-  return { items, devices: byUid.size };
+  const contacts = [...others].slice(0, MAX_CONTACTS).map(([uid, o]) => {
+    const alt = num(o.p.hae);
+    return {
+      id: uid,
+      name: String(o.p.callsign || o.r.callsign || uid),
+      type: o.r.type,
+      lat: o.lat,
+      lon: o.lon,
+      alt: Number.isFinite(alt) && alt < 1e6 ? alt : null,
+      time: o.p.timestamp || null,
+      posTime: o.p.timestamp || null,
+      stale: null,
+      telemetry: {
+        speed: finiteOrNull(o.p.speed),
+        course: finiteOrNull(o.p.course),
+        battery: null,
+      },
+      info: { Izvor: 'OTS (CoT)' },
+      from: ['cot'],
+      raws: {},
+    };
+  });
+  return { items, devices: byUid.size, contacts };
 }
