@@ -1,5 +1,6 @@
 // Povijest uredjaja: trag po terenu i reprodukcija (klizac vremena, brzina 1x/10x/60x).
-import { $, el, clear, icon, fmtClock, api } from './util.js';
+import { $, el, clear, icon, fmtClock, api, toast } from './util.js';
+import { trackToGpx, trackToKml, gpxFileName } from './gpx.js';
 import { themeColor } from './map.js';
 
 const GAP_MS = 5 * 60 * 1000; // iznad ovoga smatramo da je signal bio u prekidu
@@ -13,6 +14,7 @@ export function createHistory(app) {
   let speedMult = 1;
   let timer = null;
   const trail = [];
+  let trailData = null; // { uid, name, valid } za prikaz traga i izvoz (i bez reprodukcije)
 
   const setPlayIcon = () => $('histPlay').replaceChildren(icon(playing ? 'pause' : 'play'));
   const fail = (text) => {
@@ -88,6 +90,56 @@ export function createHistory(app) {
     timer = null;
   }
 
+  async function load(it) {
+    const data = await api('GET', `/api/history?uid=${encodeURIComponent(it.id)}`);
+    return { points: data.points || [], valid: (data.points || []).filter((p) => p.valid) };
+  }
+
+  const exportBtns = () => [$('dGpx'), $('dKml'), $('histGpx'), $('histKml')];
+  function syncTrailUi() {
+    $('dTrail').classList.toggle('on', !!trailData);
+    for (const b of exportBtns()) b.hidden = !trailData;
+  }
+
+  // trag na karti bez reprodukcije (ukljuci/iskljuci)
+  async function toggleTrail(it) {
+    if (trailData?.uid === it.id && !hist) return hideTrail();
+    let data;
+    try {
+      data = await load(it);
+    } catch (e) {
+      return toast(`Povijest nije dostupna: ${e.message}`, 'bad');
+    }
+    if (!data.valid.length) return toast('Nema valjanih točaka povijesti za ovaj uređaj.', 'warn');
+    buildTrail(data.valid);
+    trailData = { uid: it.id, name: it.name, valid: data.valid };
+    syncTrailUi();
+    const pts = data.valid.map(toCartesian);
+    viewer.camera.flyToBoundingSphere(Cesium.BoundingSphere.fromPoints(pts), {
+      duration: 1.2,
+      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-60), 0),
+    });
+  }
+
+  function hideTrail() {
+    if (hist) return; // dok traje reprodukcija, trag pripada njoj
+    clearTrail();
+    trailData = null;
+    syncTrailUi();
+  }
+
+  function download(ext) {
+    if (!trailData) return;
+    const build = ext === 'kml' ? trackToKml : trackToGpx;
+    const type = ext === 'kml' ? 'application/vnd.google-earth.kml+xml' : 'application/gpx+xml';
+    const url = URL.createObjectURL(new Blob([build(trailData.name, trailData.valid)], { type }));
+    const a = el('a', { href: url, download: gpxFileName(`trag_${trailData.name}`, ext) });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   async function enter(it) {
     msg.textContent = '';
     msg.className = '';
@@ -104,6 +156,8 @@ export function createHistory(app) {
       return;
     }
     exit();
+    trailData = { uid: it.id, name: it.name, valid };
+    syncTrailUi();
     hist = {
       uid: it.id,
       points: data.points,
@@ -124,6 +178,8 @@ export function createHistory(app) {
     stopPlayback();
     clearTrail();
     hist = null;
+    trailData = null;
+    syncTrailUi();
     $('histBar').hidden = true;
     const it = app.items.selected();
     if (it) app.items.fillDetail(it);
@@ -134,6 +190,18 @@ export function createHistory(app) {
     if (it) enter(it);
   });
   $('histLive').addEventListener('click', exit);
+  $('dTrail').addEventListener('click', () => {
+    const it = app.items.selected();
+    if (it) toggleTrail(it);
+  });
+  for (const [id, ext] of [
+    ['dGpx', 'gpx'],
+    ['dKml', 'kml'],
+    ['histGpx', 'gpx'],
+    ['histKml', 'kml'],
+  ]) {
+    $(id).addEventListener('click', () => download(ext));
+  }
   $('histSlider').addEventListener('input', (e) => {
     stopPlayback();
     time = Number(e.target.value);
@@ -159,5 +227,10 @@ export function createHistory(app) {
     }, 200);
   });
 
-  return { exit, activeFor: () => hist?.uid ?? null };
+  return {
+    exit,
+    hideTrail,
+    activeFor: () => hist?.uid ?? null,
+    trailFor: () => trailData?.uid ?? null,
+  };
 }

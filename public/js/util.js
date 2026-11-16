@@ -31,6 +31,17 @@ export function el(tag, props = {}, ...children) {
   return node;
 }
 
+// Prazno stanje s ikonom, naslovom i uputom sto napraviti dalje
+export function emptyState({ icon: name, title, text, tag = 'div' }) {
+  return el(
+    tag,
+    { class: 'empty-state' },
+    name && icon(name, 'ic empty-state-ic'),
+    el('b', { text: title }),
+    text && el('p', { text }),
+  );
+}
+
 export function clear(node) {
   node.textContent = '';
   return node;

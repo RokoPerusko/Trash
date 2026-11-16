@@ -25,12 +25,14 @@ export function createNav(app) {
     }
     app.alerts?.render();
     if (name === 'video') app.video?.sync();
+    else app.video?.pause();
     if (name === 'ots') app.ots?.sync();
     prefs.set('section', name);
   }
 
   function close() {
     current = null;
+    app.video?.pause();
     $('sidebar').hidden = true;
     for (const b of document.querySelectorAll('.nav-btn')) b.classList.remove('on');
   }

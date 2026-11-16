@@ -1,7 +1,7 @@
 // Rute: planiranje klikom po karti, popis, detalji (duljina, vrijeme, uspon/spust, visinski
 // profil, dionice), izmjena, obrtanje smjera i izvoz u GPX. OTS nema API za planirane rute,
 // pa se rute cuvaju na nasem backendu (data/routes.json) i dijele medu korisnicima.
-import { $, el, clear, icon, api, toast } from './util.js';
+import { $, el, clear, icon, api, toast, emptyState } from './util.js';
 import { askText, confirmDialog } from './dialog.js';
 import { themeColor, toDeg } from './map.js';
 import {
@@ -30,7 +30,7 @@ export function createRoutes(app) {
   const { Cesium, viewer, pickGround } = app.map;
   let routes = [];
   let selectedId = null;
-  let signature = '';
+  let signature = null; // null: prvo iscrtavanje uvijek, i za prazan popis
   let renderToken = 0;
   const drawn = new Map(); // id rute -> entiteti na karti
   const draft = [];
@@ -138,7 +138,14 @@ export function createRoutes(app) {
   function renderList() {
     const list = clear($('routeList'));
     if (!routes.length) {
-      list.appendChild(el('li', { class: 'empty', text: 'Nema ruta. Dodaj prvu gumbom iznad.' }));
+      list.appendChild(
+        emptyState({
+          tag: 'li',
+          icon: 'route',
+          title: 'Još nema ruta',
+          text: 'Klikni "Nova ruta" i označi točke na karti. Dobit ćeš duljinu, trajanje i profil visine, a rutu možeš izvesti u GPX.',
+        }),
+      );
       return;
     }
     for (const r of routes) {
@@ -514,6 +521,7 @@ export function createRoutes(app) {
 
   return {
     sync,
+    list: () => routes,
     select,
     // klik na rutu na karti otvara njezine detalje
     onPick(entity) {

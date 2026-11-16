@@ -1,7 +1,7 @@
 // Alarmi: ulaz/izlaz iz zona, niska baterija, "ne javlja polozaj" (racuna ova aplikacija)
 // te stvarni alarmi iz OTS-a (GET /api/alerts).
 import { randomUUID } from 'node:crypto';
-import { num, validLat, validLon } from '../lib/validate.js';
+import { num, validLat, validLon, zoneAlerts } from '../lib/validate.js';
 import { zoneContains } from '../public/js/geo.js';
 import { otsGet, fixServerTime } from './ots.js';
 import { zones } from './data.js';
@@ -36,7 +36,7 @@ export function checkZonesAndAlerts(items) {
     for (const zid of curZones)
       if (!ds.zones.has(zid)) {
         const z = zones.find((zz) => zz.id === zid);
-        if (z)
+        if (z && zoneAlerts(z, 'enter', it.kind))
           pushAlert({
             type: 'enter',
             deviceId: it.id,
@@ -49,7 +49,7 @@ export function checkZonesAndAlerts(items) {
     for (const zid of ds.zones)
       if (!curZones.has(zid)) {
         const z = zones.find((zz) => zz.id === zid);
-        if (z)
+        if (z && zoneAlerts(z, 'exit', it.kind))
           pushAlert({
             type: 'exit',
             deviceId: it.id,

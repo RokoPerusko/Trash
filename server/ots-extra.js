@@ -86,12 +86,27 @@ export const mapGroups = (j) =>
     missions: Array.isArray(g.missions) ? g.missions.length : null,
   }));
 
+// uid zapisa u misiji: TAK vraca ili sam uid ili objekt (uid / data.uid)
+const uidOf = (x) => (typeof x === 'string' ? x : (x?.uid ?? x?.data?.uid ?? null));
+const len = (v) => (Array.isArray(v) ? v.length : 0);
+
 export const mapMissions = (j) =>
   (j?.results || []).map((m) => ({
     id: String(m.guid ?? m.uid ?? m.id ?? m.name),
     name: String(m.name ?? m.title ?? m.guid ?? m.id ?? 'misija'),
     description: m.description ?? null,
     created: m.create_time ?? m.createTime ?? m.created ?? null,
+    owner: m.owner?.callsign ?? m.owner?.username ?? null,
+    groups: (Array.isArray(m.groups) ? m.groups : []).map((g) => String(g?.name ?? g)).slice(0, 10),
+    locked: m.passwordProtected === true,
+    inviteOnly: m.inviteOnly === true,
+    uids: (Array.isArray(m.uids) ? m.uids : [])
+      .map(uidOf)
+      .filter(Boolean)
+      .slice(0, 500)
+      .map(String),
+    files: len(m.contents) + len(m.externalData),
+    changes: len(m.missionChanges),
     fields: primitives(m),
   }));
 
