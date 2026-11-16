@@ -78,3 +78,30 @@ test('vrste: CASEVAC, zrakoplovi i plovila iz CoT-a, dron ima prednost', () => {
   assert.equal(kindOf({ from: ['/api/eud'], type: 'a-f-G-U-C' }, ctx), 'device');
   assert.equal(kindOf({ from: ['/api/markers'], type: 'a-u-G' }, ctx), 'marker');
 });
+
+test('misije: sadrzaj (uid-ovi, datoteke, vlasnik, lozinka) iz oblika koje TAK vraca', () => {
+  const [m] = mapMissions({
+    results: [
+      {
+        guid: 'g1',
+        name: 'Proba',
+        owner: { callsign: 'iPhone' },
+        groups: [{ id: 6, name: 'CloudFleet' }],
+        passwordProtected: true,
+        uids: ['a', { uid: 'b' }, { data: { uid: 'c' } }, null, {}],
+        contents: [{}, {}],
+        externalData: [{}],
+        missionChanges: [{}],
+      },
+    ],
+  });
+  assert.deepEqual(m.uids, ['a', 'b', 'c']);
+  assert.equal(m.files, 3);
+  assert.equal(m.changes, 1);
+  assert.equal(m.owner, 'iPhone');
+  assert.deepEqual(m.groups, ['CloudFleet']);
+  assert.equal(m.locked, true);
+  // prazna misija iz stvarnog OTS-a
+  const [e] = mapMissions({ results: [{ name: 'x', uids: [], contents: [], groups: [] }] });
+  assert.deepEqual([e.uids.length, e.files, e.locked], [0, 0, false]);
+});

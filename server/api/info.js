@@ -7,6 +7,7 @@ import {
   UI_POLL_MS,
   MARKERS_PATH,
   OFFLINE_HIDE_HOURS,
+  OTS_PUBLIC_URL,
 } from '../config.js';
 import { sendJson } from '../http.js';
 import { ots, otsGet } from '../ots.js';
@@ -17,7 +18,7 @@ import { getExtra } from '../ots-extra.js';
 
 export async function handleInfo({ req, res, url }) {
   if (url.pathname === '/api/state') return sendJson(res, state);
-  if (url.pathname === '/api/ots') return sendJson(res, getExtra());
+  if (url.pathname === '/api/ots') return sendJson(res, { ...getExtra(), url: OTS_PUBLIC_URL });
   if (url.pathname === '/config') {
     return sendJson(res, {
       ionToken: ION_TOKEN,

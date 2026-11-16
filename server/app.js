@@ -8,10 +8,20 @@ import { handleMarkers } from './api/markers.js';
 import { handleZones } from './api/zones.js';
 import { handleRoutes } from './api/routes.js';
 import { handleVideo } from './api/video.js';
+import { handleWeather } from './api/weather.js';
+import { handleGeocode } from './api/geocode.js';
 import { serveStatic } from './static.js';
 
 // svaka ruta vraca true kad je zahtjev obradila
-const API_HANDLERS = [handleInfo, handleMarkers, handleZones, handleRoutes, handleVideo];
+const API_HANDLERS = [
+  handleInfo,
+  handleMarkers,
+  handleZones,
+  handleRoutes,
+  handleVideo,
+  handleWeather,
+  handleGeocode,
+];
 
 export const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');

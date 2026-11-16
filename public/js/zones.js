@@ -1,9 +1,24 @@
 // Zone: crtanje poligona/kruga, popis i brisanje. OTS nema pojam zone (geofencing), pa se
 // zone cuvaju na nasem backendu, a ulaz/izlaz racuna backend (vidi README).
-import { $, el, clear, icon, api, toast } from './util.js';
+import { $, el, clear, icon, api, toast, emptyState } from './util.js';
 import { askText, confirmDialog } from './dialog.js';
 import { themeColor, toDeg } from './map.js';
 import { formatDistance, circlePoints } from './geo.js';
+import { KINDS } from './kinds.js';
+
+const RULE_MODES = [
+  ['both', 'Ulaz i izlaz'],
+  ['enter', 'Samo ulaz'],
+  ['exit', 'Samo izlaz'],
+  ['off', 'Bez alarma'],
+];
+const RULE_KINDS = ['device', 'uav', 'aircraft', 'vessel']; // vrste za koje alarm ima smisla
+
+function ruleSummary(z) {
+  const mode = RULE_MODES.find(([k]) => k === (z.alert ?? 'both'))?.[1];
+  const kinds = (z.kinds || []).map((k) => KINDS[k]?.plural.toLowerCase()).filter(Boolean);
+  return [mode, kinds.length ? kinds.join(', ') : 'sve vrste'].join(' · ');
+}
 
 export function createZones(app) {
   const { Cesium, viewer, pickGround } = app.map;
@@ -12,7 +27,8 @@ export function createZones(app) {
   let step = null; // 'choose' | 'polygon' | 'circle'
   const entities = new Map(); // id zone -> entitet
   let zones = [];
-  let signature = '';
+  let selectedZone = null;
+  let signature = null; // null: prvo iscrtavanje uvijek, i za prazan popis
 
   function clearDraft() {
     for (const e of draft) viewer.entities.remove(e);
@@ -172,7 +188,14 @@ export function createZones(app) {
   function renderList() {
     const list = clear($('zoneList'));
     if (!zones.length) {
-      list.appendChild(el('li', { class: 'empty', text: 'Nema zona. Dodaj prvu gumbom iznad.' }));
+      list.appendChild(
+        emptyState({
+          tag: 'li',
+          icon: 'zone',
+          title: 'Još nema zona',
+          text: 'Zona je krug ili poligon na karti. Kad objekt uđe u nju ili izađe, dobiješ alarm u odjeljku Alarmi.',
+        }),
+      );
       return;
     }
     for (const z of zones) {
@@ -190,6 +213,7 @@ export function createZones(app) {
             { class: 'grow' },
             el('div', { class: 'nm', text: z.name }),
             el('div', { class: 'sub', text: sub }),
+            el('div', { class: 'sub', text: ruleSummary(z) }),
           ),
           el(
             'div',
@@ -210,12 +234,58 @@ export function createZones(app) {
           ),
         ),
       );
+      if (selectedZone === z.id) list.appendChild(rulesEditor(z));
     }
+  }
+
+  async function saveRules(z, patch) {
+    try {
+      await api('PUT', `/api/zones?id=${encodeURIComponent(z.id)}`, patch);
+      await sync(true);
+    } catch (e) {
+      toast(`Spremanje pravila nije uspjelo: ${e.message}`, 'bad');
+    }
+  }
+
+  // pravila alarma za odabranu zonu: smjer i vrste objekata (bez oznacene vrste = sve)
+  function rulesEditor(z) {
+    const select = el(
+      'select',
+      { class: 'vp-input', 'aria-label': 'Kada javiti alarm' },
+      RULE_MODES.map(([value, label]) => el('option', { value, text: label })),
+    );
+    select.value = z.alert ?? 'both';
+    select.addEventListener('change', () => saveRules(z, { alert: select.value }));
+    const checks = RULE_KINDS.map((k) => {
+      const input = el('input', { type: 'checkbox' });
+      input.checked = (z.kinds || []).includes(k);
+      input.addEventListener('change', () => {
+        const kinds = RULE_KINDS.filter((x) =>
+          x === k ? input.checked : (z.kinds || []).includes(x),
+        );
+        saveRules(z, { kinds });
+      });
+      return el('label', { class: 'zone-kind' }, input, KINDS[k].plural);
+    });
+    return el(
+      'li',
+      { class: 'zone-rules', onclick: (ev) => ev.stopPropagation() },
+      el('label', { class: 'vp-field' }, el('span', { text: 'Alarm' }), select),
+      el(
+        'div',
+        { class: 'vp-field' },
+        el('span', { text: 'Za vrste objekata' }),
+        el('div', { class: 'zone-kinds' }, checks),
+      ),
+      el('p', { class: 'vp-note', text: 'Ako nijedna vrsta nije označena, alarm vrijedi za sve.' }),
+    );
   }
 
   function focus(id) {
     const e = entities.get(id)?.[0];
     if (e) viewer.flyTo(e, { duration: 1.2 });
+    selectedZone = id;
+    renderList();
     for (const li of $('zoneList').children) li.classList.toggle('sel', li.id === `zone-${id}`);
   }
 
@@ -235,15 +305,15 @@ export function createZones(app) {
     }
   }
 
-  async function sync() {
+  async function sync(force = false) {
     let next;
     try {
       next = (await api('GET', '/api/zones')).zones || [];
     } catch {
       return;
     }
-    const sig = next.map((z) => z.id).join();
-    if (sig === signature) return;
+    const sig = next.map((z) => `${z.id}:${z.alert}:${(z.kinds || []).join('|')}`).join();
+    if (!force && sig === signature) return;
     signature = sig;
     zones = next;
     const seen = new Set(next.map((z) => z.id));
@@ -261,6 +331,11 @@ export function createZones(app) {
 
   return {
     sync,
+    list: () => zones,
+    focus: (id) => {
+      app.nav.open('zones');
+      focus(id);
+    },
     // klik na zonu na karti otvara popis zona
     onPick(entity) {
       if (!entity?.zoneId) return false;

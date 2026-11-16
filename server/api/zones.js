@@ -1,5 +1,5 @@
 // Zone: OTS nema API za njih, pa se cuvaju lokalno (data/zones.json).
-import { LIMITS, parseZone } from '../../lib/validate.js';
+import { LIMITS, parseZone, applyZonePatch } from '../../lib/validate.js';
 import { BODY_LIMIT_LARGE } from '../config.js';
 import { sendJson, hasAppHeader, readJson } from '../http.js';
 import { zones, saveZones, removeById, audit } from '../data.js';
@@ -21,6 +21,19 @@ export async function handleZones({ req, res, url, who, ip }) {
     await saveZones();
     audit.record(who, ip, 'zona.dodana', { id: zone.value.id, name: zone.value.name });
     return sendJson(res, { ok: true, zone: zone.value });
+  }
+  if (req.method === 'PUT') {
+    if (!hasAppHeader(req)) return sendJson(res, { error: 'zabranjeno' }, 403);
+    const idx = zones.findIndex((z) => z.id === url.searchParams.get('id'));
+    if (idx < 0) return sendJson(res, { error: 'zona nije pronađena' }, 404);
+    const parsed = await readJson(req, BODY_LIMIT_LARGE);
+    if (parsed.error) return sendJson(res, { error: parsed.error }, parsed.status);
+    const next = applyZonePatch(zones[idx], parsed.body);
+    if (next.error) return sendJson(res, { error: next.error }, 400);
+    zones[idx] = next.value;
+    await saveZones();
+    audit.record(who, ip, 'zona.izmijenjena', { id: next.value.id, name: next.value.name });
+    return sendJson(res, { ok: true, zone: next.value });
   }
   if (req.method === 'DELETE') {
     if (!hasAppHeader(req)) return sendJson(res, { error: 'zabranjeno' }, 403);

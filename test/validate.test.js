@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseZone, parseRoute, applyRoutePatch, LIMITS } from '../lib/validate.js';
+import {
+  parseZone,
+  parseRoute,
+  applyRoutePatch,
+  LIMITS,
+  zoneAlerts,
+  applyZonePatch,
+} from '../lib/validate.js';
 
 const pts = [
   { lat: 45, lon: 16 },
@@ -46,4 +53,31 @@ test('zona: krug i poligon', () => {
   assert.equal(poly.value.type, 'polygon');
   assert.ok(parseZone({ name: 'p', type: 'polygon', points: pts }).error);
   assert.ok(parseZone({ name: 'p', type: 'nepoznato' }).error);
+});
+
+test('zone: pravila alarma po smjeru i vrsti objekta', () => {
+  const circle = { name: 'Z', type: 'circle', center: { lat: 45, lon: 15 }, radiusM: 100 };
+  const z = parseZone(circle).value;
+  assert.equal(z.alert, 'both'); // zadano: oba smjera, sve vrste
+  assert.deepEqual(z.kinds, []);
+  assert.ok(zoneAlerts(z, 'enter', 'uav') && zoneAlerts(z, 'exit', 'device'));
+
+  const onlyEnter = { ...z, alert: 'enter' };
+  assert.ok(zoneAlerts(onlyEnter, 'enter', 'uav'));
+  assert.ok(!zoneAlerts(onlyEnter, 'exit', 'uav'));
+  assert.ok(!zoneAlerts({ ...z, alert: 'off' }, 'enter', 'uav'));
+
+  const dronesOnly = { ...z, kinds: ['uav'] };
+  assert.ok(zoneAlerts(dronesOnly, 'enter', 'uav'));
+  assert.ok(!zoneAlerts(dronesOnly, 'enter', 'device'));
+
+  // stare zone bez novih polja rade kao prije
+  assert.ok(zoneAlerts({ id: 'x' }, 'exit', 'device'));
+  assert.equal(parseZone({ ...circle, alert: 'nesto' }).error, 'neispravan način alarma');
+  assert.equal(parseZone({ ...circle, kinds: ['marker'] }).error, 'neispravne vrste objekata');
+
+  const patched = applyZonePatch(z, { alert: 'exit', kinds: ['uav'], name: 'Novo' }).value;
+  assert.deepEqual([patched.alert, patched.kinds, patched.name], ['exit', ['uav'], 'Novo']);
+  assert.equal(patched.type, 'circle');
+  assert.equal(applyZonePatch(z, { alert: 'x' }).error, 'neispravan način alarma');
 });

@@ -1,6 +1,6 @@
 // Objekti s OTS-a (uredjaji, dronovi, markeri): ikone na karti, popis s pretragom i
 // filterima, kartica detalja i osvjezavanje stanja. Vrste objekata definirane su u kinds.js.
-import { $, el, clear, ago, compass, api, prefs } from './util.js';
+import { $, el, clear, ago, compass, api, prefs, toast } from './util.js';
 import { formatDuration } from './geo.js';
 import { KINDS, kindOf, isAirType } from './kinds.js';
 
@@ -262,7 +262,8 @@ export function createItems(app) {
       const battery = it.telemetry?.battery;
       const sub = [typeLabel(it)];
       if (it.team) sub.push(it.team);
-      if (Number.isFinite(battery)) sub.push(`${Math.round(battery)} %`);
+      const seen = offline(it) ? ago(it.time) : null; // odspojenima se prikazuje kad su zadnji put javili
+      if (seen) sub.push(seen);
       list.appendChild(
         el(
           'li',
@@ -274,9 +275,15 @@ export function createItems(app) {
             el('div', { class: 'nm', text: it.name }),
             el('div', { class: 'sub', text: sub.join(' · ') }),
           ),
+          Number.isFinite(battery) ? batteryBadge(battery) : null,
         ),
       );
     }
+  }
+
+  function batteryBadge(pct) {
+    const level = pct <= 15 ? 'low' : pct <= 35 ? 'mid' : 'ok';
+    return el('span', { class: `batt ${level}`, title: 'Baterija', text: `${Math.round(pct)}%` });
   }
 
   // ---------- detalji ----------
@@ -306,16 +313,15 @@ export function createItems(app) {
     return h;
   }
 
-  function setDetailRows(rows) {
-    const dl = clear($('dInfo'));
-    let aglCell = null;
-    for (const [k, v, warn, isAgl] of rows) {
-      const dd = el('dd', { class: warn ? 'warn' : '', text: v });
-      if (isAgl) aglCell = dd;
-      dl.append(el('dt', { text: k }), dd);
+  function fillRows(dl, rows) {
+    clear(dl);
+    for (const [k, v, warn] of rows) {
+      dl.append(el('dt', { text: k }), el('dd', { class: warn ? 'warn' : '', text: v }));
     }
-    return aglCell;
   }
+
+  const tile = (label, value, cls = '') =>
+    el('div', { class: `tile ${cls}` }, el('b', { text: value }), el('span', { text: label }));
 
   function fillDetail(it) {
     $('dName').textContent = it.name;
@@ -323,27 +329,54 @@ export function createItems(app) {
     $('dDot').style.background = itemColor(it);
     const [expText, expWarn] = expiryInfo(it);
     const t = it.telemetry || {};
-    const rows = [
-      ...Object.entries(it.info || {}),
-      Number.isFinite(t.speed)
-        ? ['Brzina', `${(t.speed * 3.6).toFixed(1)} km/h (${t.speed.toFixed(1)} m/s)`]
-        : null,
-      Number.isFinite(t.course) ? ['Smjer', `${Math.round(t.course)}° ${compass(t.course)}`] : null,
-      ['Položaj', `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`],
-      it.alt !== null ? ['Visina (HAE)', `${Math.round(it.alt)} m`] : null,
-      isAir(it) && it.alt !== null && hasToken ? ['Visina nad tlom', '…', false, true] : null,
-      [kind(it) === 'marker' ? 'Postavljen' : 'Zadnje javljanje', ago(it.time)],
-      ['Položaj od', it.posTime ? ago(it.posTime) : null],
-      ['Istječe', expText, expWarn],
-      ['CoT tip', it.type],
-      ['ID', it.id],
-    ].filter((r) => r && r[1]);
-    const aglCell = setDetailRows(rows);
-    if (aglCell) {
+    const info = Object.entries(it.info || {}).filter(([k]) => k !== 'Baterija');
+
+    // kljucne vrijednosti kao plocice
+    const metrics = clear($('dMetrics'));
+    const battery = t.battery;
+    if (Number.isFinite(battery)) {
+      const level = battery <= 15 ? 'low' : battery <= 35 ? 'mid' : 'ok';
+      metrics.append(tile('Baterija', `${Math.round(battery)} %`, `batt ${level}`));
+    }
+    if (Number.isFinite(t.speed))
+      metrics.append(tile('Brzina', `${(t.speed * 3.6).toFixed(0)} km/h`));
+    let altTile = null;
+    if (it.alt !== null) {
+      altTile = tile(
+        isAir(it) && hasToken ? 'Visina nad tlom' : 'Visina',
+        `${Math.round(it.alt)} m`,
+      );
+      metrics.append(altTile);
+    }
+    if (Number.isFinite(t.course)) {
+      metrics.append(tile('Smjer', `${Math.round(t.course)}° ${compass(t.course)}`));
+    }
+    metrics.hidden = !metrics.children.length;
+
+    fillRows(
+      $('dInfo'),
+      [
+        ...info,
+        ['Položaj', `${it.lat.toFixed(5)}, ${it.lon.toFixed(5)}`],
+        [kind(it) === 'marker' ? 'Postavljen' : 'Zadnje javljanje', ago(it.time)],
+        ['Istječe', expText, expWarn],
+      ].filter((r) => r && r[1]),
+    );
+    fillRows(
+      $('dTech'),
+      [
+        it.alt !== null ? ['Visina (HAE)', `${Math.round(it.alt)} m`] : null,
+        ['Položaj od', it.posTime ? ago(it.posTime) : null],
+        ['CoT tip', it.type],
+        ['ID', it.id],
+      ].filter((r) => r && r[1]),
+    );
+    if (altTile && isAir(it) && hasToken) {
       const id = it.id;
       groundAt(it.lat, it.lon).then((ground) => {
         if (selectedId !== id) return;
-        aglCell.textContent = ground === null ? 'nepoznato' : `${Math.round(it.alt - ground)} m`;
+        altTile.firstChild.textContent =
+          ground === null ? `${Math.round(it.alt)} m (HAE)` : `${Math.round(it.alt - ground)} m`;
       });
     }
     $('dPre').textContent = JSON.stringify(
@@ -355,10 +388,12 @@ export function createItems(app) {
     $('dDelete').hidden = !k.editable;
     $('dRename').hidden = !k.editable;
     $('dHistory').hidden = !k.history;
+    $('dTrail').hidden = !k.history;
   }
 
   function select(id, fly) {
     if (app.history?.activeFor() && app.history.activeFor() !== id) app.history.exit();
+    if (app.history?.trailFor() && app.history.trailFor() !== id) app.history.hideTrail();
     const previous = selectedId;
     selectedId = id;
     const it = items.find((i) => i.id === id);
@@ -383,6 +418,7 @@ export function createItems(app) {
 
   function deselect() {
     if (app.history?.activeFor()) app.history.exit();
+    app.history?.hideTrail();
     const previous = items.find((i) => i.id === selectedId);
     selectedId = null;
     $('detail').hidden = true;
@@ -407,9 +443,20 @@ export function createItems(app) {
 
   function fitAll() {
     if (!entities.size) return;
-    viewer.flyTo([...entities.values()], {
+    const points = [...entities.values()].map((e) => e.position.getValue(viewer.clock.currentTime));
+    const sphere = Cesium.BoundingSphere.fromPoints(points.filter(Boolean));
+    // dovoljno daleko da objekti ne zavrse na rubu zaslona; ako je bocna traka otvorena na
+    // racunalu, cilj se pomice ulijevo pa se objekti ne skrivaju iza nje
+    const range = Math.max(sphere.radius * 3.8, 1500);
+    if (!$('sidebar').hidden && window.innerWidth > 800) {
+      const c = Cesium.Cartographic.fromCartesian(sphere.center);
+      const shiftM = range * 0.3;
+      c.longitude -= shiftM / (6378137 * Math.cos(c.latitude));
+      sphere.center = Cesium.Cartographic.toCartesian(c);
+    }
+    viewer.camera.flyToBoundingSphere(sphere, {
       duration: 1.5,
-      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-45), 0),
+      offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-50), range),
     });
   }
 
@@ -510,6 +557,17 @@ export function createItems(app) {
     if (e) flyTo(e);
   });
   $('toolFit').addEventListener('click', fitAll);
+  $('dCopy').addEventListener('click', async () => {
+    const it = items.find((i) => i.id === selectedId);
+    if (!it) return;
+    const text = `${it.lat.toFixed(6)}, ${it.lon.toFixed(6)}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Koordinate kopirane', 'ok', 2000);
+    } catch {
+      toast(text, 'warn', 8000);
+    }
+  });
 
   return {
     poll,
