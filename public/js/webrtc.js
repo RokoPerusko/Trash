@@ -1,6 +1,9 @@
 // WebRTC klijent za MediaMTX (koji koristi OTS): WHEP za gledanje i WHIP za slanje.
 // Nema vanjskih biblioteka; ista razmjena SDP-a kao na MediaMTX-ovim stranicama.
 
+import { BITRATE, scaleFor } from './quality.js';
+import { orderCodecs } from './codecs.js';
+
 const GATHER_MS = 2000;
 const CONNECT_MS = 15000;
 
@@ -102,8 +105,11 @@ export async function whepPlay(endpoint, video, onState) {
   const pc = new RTCPeerConnection({ iceServers: await iceServers(endpoint) });
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.addTransceiver('audio', { direction: 'recvonly' });
+  // audio i video mogu stici kao dva razlicita toka; zato se svaka staza dodaje u isti tok
+  const received = new MediaStream();
   pc.ontrack = (ev) => {
-    if (video.srcObject !== ev.streams[0]) video.srcObject = ev.streams[0];
+    received.addTrack(ev.track);
+    if (video.srcObject !== received) video.srcObject = received;
   };
   try {
     const close = await negotiate(pc, endpoint, onState);
@@ -119,22 +125,63 @@ export async function whepPlay(endpoint, video, onState) {
   }
 }
 
-// H.264 prvi: najsiri raspon uredjaja (iOS/Safari ga uvijek moze dekodirati)
-function preferH264(pc) {
-  const t = pc.getTransceivers().find((x) => x.sender.track?.kind === 'video');
-  const caps = globalThis.RTCRtpSender?.getCapabilities?.('video');
-  if (!t?.setCodecPreferences || !caps) return;
-  const isH264 = (c) => /h264/i.test(c.mimeType);
-  t.setCodecPreferences([...caps.codecs.filter(isH264), ...caps.codecs.filter((c) => !isH264(c))]);
+// Kodeci za slanje: 'auto' stavlja H.264 (video) odnosno Opus (audio) prvi, a konkretan odabir
+// salje samo taj kodek. Mora se postaviti prije dogovora ponude.
+function applyCodecs(pc, choice = {}) {
+  for (const t of pc.getTransceivers()) {
+    const kind = t.sender.track?.kind;
+    const caps = kind && globalThis.RTCRtpSender?.getCapabilities?.(kind);
+    if (!caps || !t.setCodecPreferences) continue;
+    const isVideo = kind === 'video';
+    t.setCodecPreferences(
+      orderCodecs(caps.codecs, isVideo ? choice.video : choice.audio, isVideo ? 'H264' : 'opus'),
+    );
+  }
 }
 
-// Slanje: salje MediaStream s kamere; vraca { stop }
-export async function whipPublish(endpoint, stream, onState) {
+// Slanje: salje MediaStream s kamere; vraca { stop, setLevel, readStats }.
+// setLevel mijenja bitrate i velicinu slike bez prekida veze, readStats mjeri kvalitetu mreze.
+export async function whipPublish(endpoint, stream, onState, codecs = {}) {
   const pc = new RTCPeerConnection({ iceServers: await iceServers(endpoint) });
   for (const track of stream.getTracks()) pc.addTrack(track, stream);
-  preferH264(pc);
+  applyCodecs(pc, codecs);
+  const sender = pc.getSenders().find((x) => x.track?.kind === 'video');
   try {
-    return { stop: await negotiate(pc, endpoint, onState) };
+    const stop = await negotiate(pc, endpoint, onState);
+    return {
+      stop,
+      async setLevel(level, captureHeight) {
+        if (!sender) return;
+        const params = sender.getParameters();
+        if (!params.encodings?.length) params.encodings = [{}];
+        params.encodings[0].maxBitrate = BITRATE[level];
+        params.encodings[0].scaleResolutionDownBy = scaleFor(level, captureHeight);
+        // zadrzi trazenu rezoluciju umjesto da je preglednik sam smanjuje (pada broj sličica)
+        params.degradationPreference = 'maintain-resolution';
+        await sender.setParameters(params);
+      },
+      async readStats() {
+        let loss = 0;
+        let sent = null;
+        const codecs = new Map();
+        const report = await pc.getStats();
+        report.forEach((r) => r.type === 'codec' && codecs.set(r.id, r.mimeType));
+        report.forEach((r) => {
+          if (r.kind !== 'video') return;
+          if (r.type === 'remote-inbound-rtp') loss = r.fractionLost ?? 0;
+          if (r.type === 'outbound-rtp') {
+            sent = {
+              bytes: r.bytesSent,
+              frames: r.framesEncoded,
+              w: r.frameWidth,
+              h: r.frameHeight,
+              codec: String(codecs.get(r.codecId) ?? '').replace(/^video\//, ''),
+            };
+          }
+        });
+        return { loss, sent };
+      },
+    };
   } catch (e) {
     pc.close();
     throw e;

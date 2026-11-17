@@ -1,17 +1,16 @@
 // Video: popis streamova iz OTS-a (MediaMTX), gledanje i slanje s kamere izravno u karti.
 // Gledanje (WHEP) i slanje (WHIP) rade preko WebRTC-a, vidi webrtc.js.
-import { $, el, clear, api, icon, toast, prefs, emptyState } from './util.js';
+import { $, el, clear, api, icon, toast, prefs, emptyState, appUrl } from './util.js';
 import { confirmDialog } from './dialog.js';
 import { StreamError, whepPlay, whipPublish } from './webrtc.js';
+import { AUDIO_LABELS, VIDEO_LABELS, codecNames } from './codecs.js';
+import { HEIGHT, MODES, adjustCap, effectiveLevel, initialCap } from './quality.js';
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,40}$/;
 const REFRESH_MS = 4000;
 const RETRY_MS = 3000;
-const QUALITY = {
-  low: { label: 'Niska (480p)', width: 640, height: 480 },
-  mid: { label: 'Srednja (720p)', width: 1280, height: 720 },
-  high: { label: 'Visoka (1080p)', width: 1920, height: 1080 },
-};
+// kamera uvijek snima u 720p; slanje se po potrebi smanjuje na 240p (vidi quality.js)
+const CAPTURE = { width: 1280, height: 720 };
 const TIMED = (s) => {
   const m = Math.floor(s / 60);
   return `${String(m).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -226,12 +225,27 @@ export function createVideo(app) {
       { type: 'button', class: 'vp-ctl', title: 'Cijeli zaslon' },
       icon('maximize'),
     );
+    const gearBtn = el(
+      'button',
+      {
+        type: 'button',
+        class: 'vp-ctl',
+        title: 'Postavke videa',
+        'aria-haspopup': 'true',
+        'aria-expanded': 'false',
+      },
+      icon('sliders'),
+    );
+    const resChip = el('button', { type: 'button', class: 'vp-chip', title: 'Kvaliteta slike' });
+    const menu = el('div', { class: 'vp-menu', hidden: true });
+    const hdNote = el('p', { class: 'vp-note', hidden: true });
     const stage = el(
       'div',
       { class: 'vp-stage' },
       video,
       overlay,
-      el('div', { class: 'vp-ctls' }, muteBtn, fsBtn),
+      resChip,
+      el('div', { class: 'vp-ctls' }, gearBtn, muteBtn, fsBtn),
     );
 
     let player = null;
@@ -298,16 +312,133 @@ export function createVideo(app) {
       else (stage.requestFullscreen || video.webkitEnterFullscreen)?.call(stage);
     });
 
+    // HD na zahtjev: dok je ukljucen, svakih nekoliko sekundi se obnavlja zahtjev; posiljatelj
+    // ga cita i podize kvalitetu, a kad prestane (ili odemo) vraca se na nisku
+    const viewerId = `v${Math.random().toString(36).slice(2, 12)}`;
+    let hd = false;
+    let hdTimer = null;
+    const sendHd = (on, keepalive = false) =>
+      fetch(appUrl('/api/video/quality'), {
+        method: 'POST',
+        headers: { 'X-TAK-App': '1', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, viewerId, hd: on }),
+        keepalive,
+      }).catch(() => {});
+    function setHd(on) {
+      if (hd === on) return;
+      hd = on;
+      clearInterval(hdTimer);
+      sendHd(hd);
+      if (hd) hdTimer = setInterval(() => sendHd(true), 5000);
+      updateRes();
+    }
+
+    const dims = () => ({ w: video.videoWidth || 0, h: video.videoHeight || 0 });
+    function updateRes() {
+      const { w, h } = dims();
+      resChip.hidden = !w;
+      resChip.textContent = w ? `${h}p${h >= 700 ? ' HD' : ''}` : '';
+      resChip.classList.toggle('hd', h >= 700);
+      hdNote.hidden = !hd;
+      hdNote.textContent =
+        h >= 700
+          ? 'HD je aktivan. Vrijedi za sve koji gledaju ovaj stream.'
+          : 'HD je zatražen. Pošiljatelj prilagođava kvalitetu, što može potrajati nekoliko sekundi. Radi samo za streamove pokrenute iz ove karte.';
+      if (!menu.hidden) renderMenu();
+    }
+    video.addEventListener('resize', updateRes);
+    video.addEventListener('loadedmetadata', updateRes);
+    const resTimer = setInterval(updateRes, 1500);
+
+    const menuRow = (iconName, label, onClick, hint) =>
+      el(
+        'button',
+        { type: 'button', class: 'vp-menu-row', role: 'menuitem', onclick: onClick },
+        icon(iconName),
+        el('span', { class: 'grow', text: label }),
+        hint && el('small', { text: hint }),
+      );
+    const qualityRow = (value, label, hint) =>
+      el(
+        'button',
+        {
+          type: 'button',
+          class: `vp-menu-row vp-opt${hd === (value === 'high') ? ' on' : ''}`,
+          role: 'menuitemradio',
+          'aria-checked': String(hd === (value === 'high')),
+          onclick: () => setHd(value === 'high'),
+        },
+        icon('check'),
+        el('span', { class: 'grow', text: label }),
+        el('small', { text: hint }),
+      );
+
+    function renderMenu() {
+      const { w, h } = dims();
+      clear(menu).append(
+        el('div', { class: 'vp-menu-h', text: 'Kvaliteta' }),
+        qualityRow('low', 'Niska · 240p', 'štedi podatke'),
+        qualityRow('high', 'HD · 720p', 'oštrija slika'),
+        el('div', {
+          class: 'vp-menu-note',
+          text: w ? `Trenutno stiže ${w}×${h}` : 'Slika još nije stigla',
+        }),
+        el('div', { class: 'vp-menu-sep' }),
+        menuRow('volume', video.muted ? 'Uključi zvuk' : 'Isključi zvuk', () => {
+          muteBtn.click();
+          renderMenu();
+        }),
+        document.pictureInPictureEnabled &&
+          menuRow('maximize', 'Slika u slici', () => {
+            closeMenu();
+            (document.pictureInPictureElement
+              ? document.exitPictureInPicture()
+              : video.requestPictureInPicture()
+            ).catch(() => toast('Slika u slici nije dostupna', 'warn', 2500));
+          }),
+        menuRow('maximize', 'Cijeli zaslon', () => {
+          closeMenu();
+          fsBtn.click();
+        }),
+        menuRow('flip', 'Ponovno spoji', () => {
+          closeMenu();
+          connect();
+        }),
+      );
+    }
+    function openMenu() {
+      renderMenu();
+      menu.hidden = false;
+      gearBtn.setAttribute('aria-expanded', 'true');
+    }
+    function closeMenu() {
+      menu.hidden = true;
+      gearBtn.setAttribute('aria-expanded', 'false');
+    }
+    const toggleMenu = (ev) => {
+      ev.stopPropagation();
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    };
+    gearBtn.addEventListener('click', toggleMenu);
+    resChip.addEventListener('click', toggleMenu);
+    menu.addEventListener('click', (ev) => ev.stopPropagation());
+    stage.addEventListener('click', () => !menu.hidden && closeMenu());
+    stage.addEventListener('keydown', (ev) => ev.key === 'Escape' && closeMenu());
+
     leave = () => {
       closed = true;
       clearTimeout(retryTimer);
+      clearInterval(hdTimer);
+      clearInterval(resTimer);
+      if (hd) sendHd(false, true);
       player?.stop();
     };
 
     const links = el('div');
     const renderLinks = () => clear(links).append(linkButtons(info()));
     const header = head(info().name, () => show(showList), statusSlot);
-    root.append(header, stage, links);
+    root.append(header, stage, menu, hdNote, links);
     renderLinks();
     sync().then(() => {
       if (mode === 'watch') {
@@ -355,13 +486,35 @@ export function createVideo(app) {
       icon('flip'),
       'Zamijeni',
     );
-    const qualitySelect = el(
-      'select',
-      { class: 'vp-input' },
-      Object.entries(QUALITY).map(([k, q]) => el('option', { value: k, text: q.label })),
+    // mikrofon i kodeci (kodek se ne moze mijenjati tijekom emitiranja)
+    const micSelect = el('select', { class: 'vp-input', 'aria-label': 'Mikrofon' });
+    const names = (kind) =>
+      codecNames(globalThis.RTCRtpSender?.getCapabilities?.(kind)).filter(
+        (n) => kind === 'video' || n !== 'MULTIOPUS',
+      );
+    const codecSelect = (kind, labels, autoLabel, prefKey) => {
+      const select = el(
+        'select',
+        { class: 'vp-input', 'aria-label': kind === 'video' ? 'Video kodek' : 'Audio kodek' },
+        el('option', { value: 'auto', text: autoLabel }),
+        names(kind).map((n) => el('option', { value: n, text: labels[n] || n })),
+      );
+      const saved = prefs.get(prefKey);
+      select.value = [...select.options].some((o) => o.value === saved) ? saved : 'auto';
+      return select;
+    };
+    const videoCodecSelect = codecSelect(
+      'video',
+      VIDEO_LABELS,
+      'Automatski (H.264 prvi)',
+      'streamVideoCodec',
     );
-    qualitySelect.value =
-      prefs.get('streamQuality') in QUALITY ? prefs.get('streamQuality') : 'mid';
+    const audioCodecSelect = codecSelect(
+      'audio',
+      AUDIO_LABELS,
+      'Automatski (Opus prvi)',
+      'streamAudioCodec',
+    );
     const micBtn = el('button', { type: 'button', class: 'btn small on' }, icon('mic'), 'Mikrofon');
     let micOn = prefs.get('streamMic') !== '0';
     const paintMic = () => {
@@ -373,11 +526,32 @@ export function createVideo(app) {
       for (const t of media?.getAudioTracks() || []) t.enabled = micOn;
     };
 
+    let sendMode = prefs.get('streamMode') in MODES ? prefs.get('streamMode') : 'auto';
+    const modeSelect = el(
+      'select',
+      { class: 'vp-input', 'aria-label': 'Kvaliteta slanja' },
+      Object.entries(MODES).map(([k, label]) => el('option', { value: k, text: label })),
+    );
+    modeSelect.value = sendMode;
+    modeSelect.addEventListener('change', () => {
+      sendMode = modeSelect.value;
+      prefs.set('streamMode', sendMode);
+    });
+    // vidljiv i dok se emitira, pa se nacin moze mijenjati uzivo
+    const qualityField = el(
+      'label',
+      { class: 'vp-field' },
+      el('span', { text: 'Kvaliteta slanja' }),
+      modeSelect,
+    );
+    const qStatus = el('p', { class: 'vp-note vp-qstatus', role: 'status' });
+
     const goBtn = el('button', { type: 'button', class: 'btn primary wide vp-go' }, icon('video'));
     const goLabel = el('span', { text: 'Kreni uživo' });
     goBtn.append(goLabel);
     const msg = el('p', { class: 'vp-note', role: 'status' });
     const afterLive = el('div', { hidden: true });
+    let controlTimer = null;
     const settings = el(
       'div',
       { class: 'vp-form' },
@@ -389,8 +563,19 @@ export function createVideo(app) {
         nameHint,
       ),
       el('label', { class: 'vp-field' }, el('span', { text: 'Kamera' }), camSelect),
+      el('label', { class: 'vp-field' }, el('span', { text: 'Mikrofon' }), micSelect),
       el('div', { class: 'row wrap vp-rowtools' }, flipBtn, micBtn),
-      el('label', { class: 'vp-field' }, el('span', { text: 'Kvaliteta' }), qualitySelect),
+      el(
+        'details',
+        { class: 'raw vp-adv' },
+        el('summary', { text: 'Kodeci' }),
+        el('label', { class: 'vp-field' }, el('span', { text: 'Video kodek' }), videoCodecSelect),
+        el('label', { class: 'vp-field' }, el('span', { text: 'Audio kodek' }), audioCodecSelect),
+        el('p', {
+          class: 'vp-note',
+          text: 'H.264 je potreban za iTAK, ATAK i HLS adresu. VP8 i VP9 gledaju samo preglednici. Ako stream ne prikazuje sliku, probaj drugi kodek.',
+        }),
+      ),
     );
 
     function stopMedia() {
@@ -406,7 +591,7 @@ export function createVideo(app) {
         goBtn.disabled = true;
         return;
       }
-      const q = QUALITY[qualitySelect.value];
+      const q = CAPTURE;
       overlayMsg('Pokrećem kameru…');
       try {
         media = await navigator.mediaDevices.getUserMedia({
@@ -418,7 +603,11 @@ export function createVideo(app) {
             height: { ideal: q.height },
             frameRate: { ideal: 30 },
           },
-          audio: { echoCancellation: true, noiseSuppression: true },
+          audio: {
+            ...(micSelect.value ? { deviceId: { exact: micSelect.value } } : {}),
+            echoCancellation: true,
+            noiseSuppression: true,
+          },
         });
       } catch (e) {
         // bez mikrofona i dalje se moze slati samo slika
@@ -460,6 +649,17 @@ export function createVideo(app) {
       );
       if (current) camSelect.value = current;
       flipBtn.hidden = cams.length < 2;
+      const mics = (await navigator.mediaDevices.enumerateDevices()).filter(
+        (d) => d.kind === 'audioinput',
+      );
+      const currentMic = media.getAudioTracks()[0]?.getSettings().deviceId;
+      clear(micSelect).append(
+        ...mics.map((m, i) =>
+          el('option', { value: m.deviceId, text: m.label || `Mikrofon ${i + 1}` }),
+        ),
+      );
+      if (currentMic) micSelect.value = currentMic;
+      micSelect.disabled = !mics.length;
       paintMic();
     }
 
@@ -508,17 +708,24 @@ export function createVideo(app) {
       goLabel.textContent = 'Spajanje…';
       msg.textContent = '';
       try {
-        publisher = await whipPublish(endpoint(name, 'whip'), media, (state) => {
-          if (closed || !live) return;
-          if (state === 'failed' || state === 'closed') {
-            stopLive();
-            toast('Veza sa serverom je prekinuta, stream je zaustavljen.', 'bad');
-          }
-        });
+        publisher = await whipPublish(
+          endpoint(name, 'whip'),
+          media,
+          (state) => {
+            if (closed || !live) return;
+            if (state === 'failed' || state === 'closed') {
+              stopLive();
+              toast('Veza sa serverom je prekinuta, stream je zaustavljen.', 'bad');
+            }
+          },
+          { video: videoCodecSelect.value, audio: audioCodecSelect.value },
+        );
+        prefs.set('streamVideoCodec', videoCodecSelect.value);
+        prefs.set('streamAudioCodec', audioCodecSelect.value);
         prefs.set('streamName', name);
-        prefs.set('streamQuality', qualitySelect.value);
         prefs.set('streamMic', micOn ? '1' : '0');
         setLive(true, name);
+        startControl(name);
         sync();
       } catch (e) {
         goLabel.textContent = 'Kreni uživo';
@@ -530,7 +737,55 @@ export function createVideo(app) {
       goBtn.disabled = false;
     }
 
+    // svake 3 s: pita ima li HD zahtjeva, mjeri mrezu i prema tome podize ili spusta kvalitetu
+    function startControl(name) {
+      const selected = 'high';
+      const captureHeight = media?.getVideoTracks()[0]?.getSettings().height || HEIGHT[selected];
+      let state = initialCap(selected);
+      let applied = null;
+      let busy = false;
+      const tickControl = async () => {
+        if (busy || !publisher || closed) return;
+        busy = true;
+        try {
+          const want = await api(
+            'GET',
+            `/api/video/quality?path=${encodeURIComponent(name)}`,
+          ).catch(() => ({ hd: false, viewers: 0 }));
+          const stats = await publisher.readStats();
+          qStatus.dataset.stats = JSON.stringify(stats);
+          state = adjustCap(state, { selected, ...stats });
+          const level = effectiveLevel(
+            { selected, hdRequested: want.hd, mode: sendMode },
+            state.cap,
+          );
+          if (level !== applied) {
+            await publisher.setLevel(level, captureHeight);
+            applied = level;
+          }
+          const parts = [
+            `Šaljem ${HEIGHT[level]}p${stats.sent?.codec ? ` (${stats.sent.codec})` : ''}`,
+          ];
+          if (want.hd)
+            parts.push(`HD traži ${want.viewers} gledatelj${want.viewers === 1 ? '' : 'a'}`);
+          else if (sendMode === 'auto') parts.push('štednja podataka (nitko ne traži HD)');
+          else if (sendMode === 'low') parts.push('stalno niska kvaliteta');
+          else parts.push('stalno HD');
+          if (state.cap !== selected) parts.push('signal je slab, kvaliteta je snižena');
+          qStatus.textContent = parts.join(' · ');
+        } catch {
+          /* sljedeci uzorak ce pokusati ponovno */
+        }
+        busy = false;
+      };
+      clearInterval(controlTimer);
+      controlTimer = setInterval(tickControl, 3000);
+      tickControl();
+    }
+
     function stopLive() {
+      clearInterval(controlTimer);
+      qStatus.textContent = '';
       publisher?.stop();
       publisher = null;
       if (!closed) {
@@ -546,7 +801,7 @@ export function createVideo(app) {
       paintMic();
     });
     camSelect.addEventListener('change', openCamera);
-    qualitySelect.addEventListener('change', openCamera);
+    micSelect.addEventListener('change', openCamera);
     flipBtn.addEventListener('click', () => {
       const opts = [...camSelect.options];
       camSelect.selectedIndex = (camSelect.selectedIndex + 1) % opts.length;
@@ -564,6 +819,7 @@ export function createVideo(app) {
     leave = () => {
       closed = true;
       clearInterval(timer);
+      clearInterval(controlTimer);
       publisher?.stop();
       stopMedia();
     };
@@ -572,8 +828,10 @@ export function createVideo(app) {
       head('Novi stream', () => show(showList), liveBadge),
       stage,
       settings,
+      qualityField,
       goBtn,
       msg,
+      qStatus,
       afterLive,
     );
     checkName();

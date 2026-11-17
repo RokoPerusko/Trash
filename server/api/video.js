@@ -4,6 +4,7 @@ import { sendJson, hasAppHeader, readJson } from '../http.js';
 import { otsGet, otsSend } from '../ots.js';
 import { BODY_LIMIT_SMALL } from '../config.js';
 import { audit } from '../data.js';
+import { qualityBook } from '../quality.js';
 
 const enc = encodeURIComponent;
 
@@ -34,8 +35,33 @@ async function deleteStream({ req, res, who, ip }) {
   }
 }
 
+const PATH_RE = /^[A-Za-z0-9_.-]{1,80}$/;
+const VIEWER_RE = /^[A-Za-z0-9_-]{6,40}$/;
+
+// kvaliteta na zahtjev: gledatelj javlja zeli li HD, posiljatelj pita ima li takvih zahtjeva
+async function handleQuality({ req, res, url }) {
+  if (req.method === 'GET') {
+    const path = url.searchParams.get('path') || '';
+    if (!PATH_RE.test(path)) return sendJson(res, { error: 'neispravan stream' }, 400);
+    return sendJson(res, qualityBook.status(path));
+  }
+  if (req.method === 'POST') {
+    if (!hasAppHeader(req)) return sendJson(res, { error: 'zabranjeno' }, 403);
+    const parsed = await readJson(req, BODY_LIMIT_SMALL);
+    if (parsed.error) return sendJson(res, { error: parsed.error }, parsed.status);
+    const { path, viewerId, hd } = parsed.body;
+    if (!PATH_RE.test(String(path)) || !VIEWER_RE.test(String(viewerId))) {
+      return sendJson(res, { error: 'neispravan zahtjev' }, 400);
+    }
+    qualityBook.request(String(path), String(viewerId), hd === true);
+    return sendJson(res, { ok: true });
+  }
+  return false;
+}
+
 export async function handleVideo(ctx) {
   const { req, res, url } = ctx;
+  if (url.pathname === '/api/video/quality') return handleQuality(ctx);
   if (url.pathname === '/api/video/delete' && req.method === 'POST') return deleteStream(ctx);
   if (url.pathname !== '/api/video') return false;
   try {

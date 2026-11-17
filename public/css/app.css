@@ -1666,3 +1666,80 @@ a.btn {
     z-index: 16;
   }
 }
+
+.vp-qstatus:empty {
+  display: none;
+}
+
+/* ---------- izbornik postavki u playeru ---------- */
+.vp-chip {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+}
+.vp-chip[hidden] {
+  display: none;
+}
+.vp-chip.hd {
+  background: var(--accent);
+}
+.vp-menu {
+  margin-top: 8px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.vp-menu[hidden] {
+  display: none;
+}
+.vp-menu-h {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+.vp-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: left;
+  color: var(--text);
+  font-size: 13.5px;
+}
+.vp-menu-row:hover {
+  background: var(--hover);
+}
+.vp-menu-row small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.vp-opt .ic {
+  visibility: hidden;
+  color: var(--accent);
+}
+.vp-opt.on .ic {
+  visibility: visible;
+}
+.vp-menu-note {
+  padding: 2px 8px 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.vp-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
